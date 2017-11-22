@@ -13,15 +13,30 @@
 
 (provide (all-defined-out))
 
-(define jan01 (+ (* 10000 start-year) 101))
-(define dec31 (+ (* 10000 end-year) 1231))
-
 (struct ledger-item (date amount dr-acct cr-acct payee description dr-seen cr-seen dr-deduct cr-deduct) #:transparent)
 (struct statement-item (acct date amount description) #:transparent)
 
 (struct ledger-bal-item (ledger-item balance balance-seen diff) #:transparent)
 
 (struct reconciliation-item (date amount dr-acct cr-acct payee description dr-seen cr-seen) #:transparent)
+
+(define track-item
+  (class object%
+    (super-new)
+    (field [_dr-matched #f]
+           [_cr-matched #f])
+    (init-field item)
+    (define/public (set-dr-match)
+      (set! _dr-matched #t))
+    (define/public (set-cr-match)
+      (set! _cr-matched #t))
+    (define/public (get-item) item)
+    (define/public (dr-matched?) _dr-matched)
+    (define/public (cr-matched?) _cr-matched)
+    (define/public (unmatched?) (not (or _dr-matched _cr-matched)))))
+
+(define jan01 (+ (* 10000 start-year) 101))
+(define dec31 (+ (* 10000 end-year) 1231))
 
 (define con (mysql-connect #:server db-host
                            #:database db-schema
@@ -70,7 +85,7 @@
     (map row-to-statement-item rows)))
 
 (define (find-previous-statement-date ymd8 statement-balances-going-back-in-time)
-  (cond [(empty? statement-balances-going-back-in-time) jan01]  ;; FIXME will eventually filter from jan02 not jan01
+  (cond [(empty? statement-balances-going-back-in-time) jan01] ;FIXME needs to be > dec31 not jan01
         [else (let ([x (first (first statement-balances-going-back-in-time))])
                 (if (< x ymd8)
                     x
@@ -78,7 +93,6 @@
 
 (define (find-reconciliation-items acct ymd8-end statement-balances)
   (let* ([ymd8-start (find-previous-statement-date ymd8-end (reverse statement-balances))]
-         [s-month (substring (ymd8->ymd10 ymd8-end) 5 7)]
          [rows (query-rows
                 con (string-append "select"
                                    " date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen"
@@ -86,9 +100,9 @@
                                    " (date >  '" (ymd8->ymd10 ymd8-start) "' and"
                                    "  date <= '" (ymd8->ymd10 ymd8-end)   "')"
                                    " and"
-                                   " ((dr_acct = '" acct "' and (dr_seen is null or dr_seen != '" s-month "' )) "
+                                   " ((dr_acct = '" acct "' and (dr_seen is null or dr_seen = ':' )) "
                                    "   or "
-                                   "  (cr_acct = '" acct "' and (cr_seen is null or cr_seen != '" s-month "' )) )"
+                                   "  (cr_acct = '" acct "' and (cr_seen is null or cr_seen = ':' )) )"
                                    " order by date")
                 )])
     (map row-to-reconciliation-item rows)))
@@ -279,81 +293,167 @@
   (let ([ins (ledger-filter-acct acct ledger-items)])
     (reverse (helper ins empty starting-balance starting-balance-seen))))
 
-(define track-item
-  (class object%
-    (super-new)
-    (field [_matched #f])
-    (init-field item)
-    (define/public (match)
-      (set! _matched #t))
-    (define/public (get-item) item)
-    (define/public (matched?) _matched)
-    (define/public (unmatched?) (not _matched))))
+(define (check-ledger-statement-match ymd8-statement acct tl ts)
+  (let* ([srow (send ts get-item)]
+         [lrow (send tl get-item)]
+         [l-date (ledger-item-date lrow)]
+         [s-date (statement-item-date srow)]
+         [l-amt (ledger-amt acct lrow)]
+         [s-amount (statement-item-amount srow)]
+         
+         [statement-month (quotient (remainder ymd8-statement 10000) 100)])
+    ;; L1: 20171030 3.00 (a pnc :) (l lycoming) ("whatever"))
+    ;; L2: 20171031 200.00 (a pnc 11) (l lycoming) ("whatever"))
+    ;; L3: 20171110 5.00 (x food) (a pnc 11) ("whatever"))
+    ;; L4: 20171115 100.00 (a pnc 11) (l lycoming) ("whatever"))
+    ;;
+    ;; S1: 20171101 200.00 "whatever"
+    ;; S2: 20171101 -5.00 "whatever"
+    ;; S3: 20171116 100.00 "whatever"
+    ;;
+    ;; L2 matches S1 because:
+    ;;   Sdate >= Ldate
+    ;;   Ldr-acct match and signed(Lamt) == Samt
+    ;;   Smonth==11 and num(Ldr-tag)==(+ 11 (* 12 (- statement-year ledger-year)))
 
-(define (is-ledger-statement-new-match acct ts tl)
-  (if (send tl matched?)
-      #f
-      (let* ([srow (send ts get-item)]
-             [lrow (send tl get-item)]
-             [l-date (ledger-item-date lrow)]
-             [s-date (statement-item-date srow)]
-             [l-amt2 (ledger-amt acct lrow)]
-             [s-amt2 (statement-item-amount srow)])
-        (and (>= s-date l-date)
-             (= l-amt2 s-amt2)))))
+    (and (is-ledger-statement-match-date lrow srow)
+         (is-ledger-statement-match-amount acct lrow srow)
+         )))
 
-(define (pr-examine-acct acct)
-  (let ([results (examine-acct acct)])
+(define (is-ledger-statement-match-date li si)
+  (>= (statement-item-date si) (ledger-item-date li)))
+
+(define (is-ledger-statement-match-amount acct li si)
+  (let ([x (compare-acct-dr-cr acct li si)])
+    (cond [(symbol=? x 'acct-dr-and-cr-match) 'acct-amoutn-dr-and-cr-match]
+          [(symbol=? x 'acct-dr-matches) (= (ledger-item-amount li) (statement-item-amount si))]
+          [(symbol=? x 'acct-cr-matches) (= (ledger-item-amount li) (statement-item-amount si))]
+          [else false])))
+
+(define (compare-acct-dr-cr acct li si)
+  (let ([mask (bitwise-ior (if (string=? acct (statement-item-acct si)) 1 0)
+                           (if (string=? acct (ledger-item-dr-acct li)) 2 0)
+                           (if (string=? acct (ledger-item-cr-acct li)) 4 0))])
+    (cond [(= mask 7) 'acct-dr-and-cr-match]
+          [(= mask 3) 'acct-dr-matches]
+          [(= mask 5) 'acct-cr-matches]
+          [else false])))
+
+(define (pr-examine-acct acct ymd8-end)
+  (let-values ([(statement-unmatched ledger-unmatched) (examine-acct acct ymd8-end)])
     (printf "====== Statement items not in ledger:\n")
-    (for-each (λ (srow)
-                (printf "~a ~a ~a\n" (statement-item-date srow)
-                        (exact->inexact (statement-item-amount srow))
-                        (statement-item-description srow)))
-              (first results))
+    (for-each (λ (x)
+                (let ([srow (send x get-item)])
+                  (printf "~a ~a ~a\n" (statement-item-date srow)
+                          (exact->inexact (statement-item-amount srow))
+                          (statement-item-description srow))))
+              statement-unmatched)
     (printf "\n====== Ledger items not in loaded statements:\n")
-    (for-each (λ (lrow)
-                (printf "~a ~a ~a ~a ~a\n"
-                        (ledger-item-date lrow)
-                        (if (> (ledger-amt acct lrow) 0)
-                            (ledger-item-dr-seen lrow)
-                            (ledger-item-cr-seen lrow))
-                        (exact->inexact (ledger-amt acct lrow))
-                        (ledger-item-payee lrow)
-                        (ledger-item-description lrow)))
-              (second results))))
+    (for-each (λ (x)
+                (let ([lrow (send x get-item)])
+                  (printf "~a ~a ~a ~a ~a\n"
+                          (ledger-item-date lrow)
+                          (if (> (ledger-amt acct lrow) 0)
+                              (ledger-item-dr-seen lrow)
+                              (ledger-item-cr-seen lrow))
+                          (exact->inexact (ledger-amt acct lrow))
+                          (ledger-item-payee lrow)
+                          (ledger-item-description lrow))))
+              ledger-unmatched)))
 
-(define (examine-acct acct)
-  (let* ([statement-acct-items (statement-filter-acct acct (statement-range jan01 today all-statement-items))]
-         [ledger-acct-items (ledger-filter-acct acct (ledger-range jan01 today all-ledger-items))]
+(define (examine-acct acct ymd8-end)
+  (let* ([statement-acct-items (statement-filter-acct acct (statement-range jan01 ymd8-end all-statement-items))]
+         [ledger-acct-items (ledger-filter-acct acct (ledger-range jan01 ymd8-end all-ledger-items))]
          [statement-acct-track-items (map (λ (x) (new track-item [item x])) statement-acct-items)]
-         [ledger-acct-track-items (map (λ (x) (new track-item [item x])) ledger-acct-items)]
-         [statement-unmatched empty])
-    (for/list ([statement-acct-track-item statement-acct-track-items])
-      (for/list ([ledger-acct-track-item ledger-acct-track-items])
-        (when (is-ledger-statement-new-match acct statement-acct-track-item ledger-acct-track-item)
-          (send ledger-acct-track-item match)
-          (send statement-acct-track-item match)))
-      (when (send statement-acct-track-item unmatched?)
-        (set! statement-unmatched (cons (send statement-acct-track-item get-item) statement-unmatched))))
-    (list (reverse statement-unmatched)
-          (map (λ (x)
-                 (send x get-item))
-               (filter (λ (x)
-                         (send x unmatched?))
-                       ledger-acct-track-items)))))
+         [ledger-acct-track-items (map (λ (x) (new track-item [item x])) ledger-acct-items)])
+    (for/list ([ledger-acct-track-item ledger-acct-track-items])
+      (for/list ([statement-acct-track-item statement-acct-track-items])
+        (check-ledger-statement-match
+         ymd8-end ;; is this the right thing? it's really expecting the statement date
+         acct ledger-acct-track-item statement-acct-track-item)))
+    (values (filter (λ (x) (send x matched?)) statement-acct-track-items)
+            (filter (λ (x) (send x matched?)) ledger-acct-track-items))))
 
-(define (amounts-seen-but-not-in-statement acct ymd8 statement-balances)
+;(define (amounts-seen-but-not-in-statement acct ymd8 reconciliation-items)
+;  (map (λ (x)
+;         (let ([x-amount (reconciliation-item-amount x)]
+;               [x-dr-seen (reconciliation-item-dr-seen x)]
+;               [x-cr-seen (reconciliation-item-cr-seen x)])
+;           (+ (if (or (string? x-dr-seen) (symbol? x-dr-seen))
+;                  x-amount
+;                  0)
+;              (if (or (string? x-cr-seen) (symbol? x-cr-seen))
+;                  (- x-amount)
+;                  0))))
+;       reconciliation-items))
+
+;(define (sum-amounts-seen-but-not-in-statement acct ymd8 reconciliation-items)
+;  (apply + (amounts-seen-but-not-in-statement acct ymd8 reconciliation-items)))
+
+; example:
+; it's November, a deposit not in the statement would have x-dr-seen != "11"
+;                a charge  not in the statement would have x-cr-seen != "11"
+; count #f as "new" always
+; count ":" as "new" if it's older than the LAST statement
+;
+(define (amounts-new-dr-cr acct ymd8 reconciliation-items typ)
   (map (λ (x)
          (let ([x-amount (reconciliation-item-amount x)]
                [x-dr-seen (reconciliation-item-dr-seen x)]
-               [x-cr-seen (reconciliation-item-cr-seen x)])
-           (+ (if (or (string? x-dr-seen) (symbol? x-dr-seen))
-                  x-amount
-                  0)
-              (if (or (string? x-cr-seen) (symbol? x-cr-seen))
-                  (- x-amount)
-                  0))))
-       (find-reconciliation-items acct ymd8 statement-balances)))
+               [x-cr-seen (reconciliation-item-cr-seen x)])1
+           (cond [(and (symbol=? typ 'dr)
+                       (string=? acct (reconciliation-item-dr-acct x))
+                       (or (false? x-dr-seen) (and (string? x-dr-seen) (string=? x-dr-seen ":"))))
+                  x-amount]
+                 [(and (symbol=? typ 'cr)
+                       (string=? acct (reconciliation-item-cr-acct x))
+                       (or (false? x-cr-seen) (and (string? x-cr-seen) (string=? x-cr-seen ":"))))
+                  (- x-amount)]
+                 [else 0])))
+       reconciliation-items))
 
-(define (sum-amounts-seen-but-not-in-statement acct ymd8 statement-balances)
-  (apply + (amounts-seen-but-not-in-statement acct ymd8 statement-balances)))
+(define (sum-amounts-new-cr acct stmt-ymd8 reconciliation-items)
+  (apply + (amounts-new-dr-cr acct stmt-ymd8 reconciliation-items 'cr)))
+
+(define (sum-amounts-new-dr acct stmt-ymd8 reconciliation-items)
+  (apply + (amounts-new-dr-cr acct stmt-ymd8 reconciliation-items 'dr)))
+
+; balance shown on statement
+; + deposits in ledger that are not on statement
+; - outstanding checks/withdrawals not shown on statement
+; total should be same as statement
+
+(define (pr-unreconciled acct ymd8)
+  (let* ([reconciliation-items (find-reconciliation-items acct ymd8 (get-statement-balances acct))])
+    (printf "\n======== ~a TOTAL ===== Debits Not Reconciled to a Statement\n"
+            (~a (format-float
+                 (sum-amounts-new-dr acct ymd8 reconciliation-items) 2)
+                #:min-width 9 #:align 'right))
+    (for-each (λ (x)
+                (when (string=? acct (reconciliation-item-dr-acct x))
+                  (printf "~a ~a ~a (~a) ~a / ~a\n"
+                          (reconciliation-item-date x)
+                          (~a
+                           (format-float (exact->inexact (reconciliation-item-amount x)) 2)
+                           #:min-width 9 #:align 'right)
+                          (if (reconciliation-item-dr-seen x) ":" " ")
+                          (reconciliation-item-cr-acct x)
+                          (reconciliation-item-payee x)
+                          (reconciliation-item-description x))))
+              reconciliation-items)
+    (printf "\n======== ~a TOTAL ===== Credits Not Reconciled to a Statement\n"
+            (~a (format-float
+                 (sum-amounts-new-cr acct ymd8 reconciliation-items) 2)
+                #:min-width 9 #:align 'right))
+    (for-each (λ (x)
+                (when (string=? acct (reconciliation-item-cr-acct x))
+                  (printf "~a ~a ~a (~a) ~a / ~a\n"
+                          (reconciliation-item-date x)
+                          (~a
+                           (format-float (exact->inexact (- (reconciliation-item-amount x))) 2)
+                           #:min-width 9 #:align 'right)
+                          (if (reconciliation-item-cr-seen x) ":" " ")
+                          (reconciliation-item-dr-acct x)
+                          (reconciliation-item-payee x)
+                          (reconciliation-item-description x))))
+              reconciliation-items)))

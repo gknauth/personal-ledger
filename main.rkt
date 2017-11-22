@@ -14,7 +14,7 @@
 
 (define cols (vector "acct" "date" "book" "ext" "(- ext book)"
                      "stmt" "stmt-bal" "sync"
-                     "seen-also" "reconciliation" "(- ext reconciliation)"))
+                     "new-dr" "new-cr" "reconciliation"))
 (define rows (list->vector (cons empty accounts-to-show)))
 (define cells (make-vector (* (vector-length cols) (vector-length rows))))
 
@@ -146,23 +146,24 @@
 (define (update-seen-also row)
   (let* ([acct (vector-ref rows row)]
          [s-which-stmt-date (send (vector-ref cells (ij-s row "stmt")) get-value)]
-         [s-stmt-bal (send (vector-ref cells (ij-s row "stmt-bal")) get-value)])
+         [stmt-ymd8 (string->number s-which-stmt-date)]
+         [s-stmt-bal (send (vector-ref cells (ij-s row "stmt-bal")) get-value)]
+         [statement-balances (get-statement-balances acct)]
+         [reconciliation-items (find-reconciliation-items acct stmt-ymd8 statement-balances)])
     (when (and (= (string-length s-which-stmt-date) 8)
                (> (string-length s-stmt-bal) 0))
       (let* ([ext (string->number (send (vector-ref cells (ij-s row "ext")) get-value))]
              [stmt-bal (string->number s-stmt-bal)]
-             [seen-also (sum-amounts-seen-but-not-in-statement
-                         acct
-                         (string->number s-which-stmt-date)
-                         (get-statement-balances acct))]
-             [reconciliation (+ stmt-bal seen-also)]
+             [new-cr (sum-amounts-new-cr acct stmt-ymd8 reconciliation-items)]
+             [new-dr (sum-amounts-new-dr acct stmt-ymd8 reconciliation-items)]
+             [reconciliation (+ stmt-bal new-cr new-dr)]
              [ext-minus-reconciliation (- ext reconciliation)])
-        (send (vector-ref cells (ij-s row "seen-also")) set-value
-              (format-exact seen-also 2))
+        (send (vector-ref cells (ij-s row "new-dr")) set-value
+              (format-exact new-dr 2))
+        (send (vector-ref cells (ij-s row "new-cr")) set-value
+              (format-exact new-cr 2))
         (send (vector-ref cells (ij-s row "reconciliation")) set-value
-              (format-exact reconciliation 2))
-        (send (vector-ref cells (ij-s row "(- ext reconciliation)")) set-value
-              (format-exact ext-minus-reconciliation 2))))))
+              (format-exact reconciliation 2))))))
 
 (define (update-date-book-ext-diff row)
   (let* ([acct (vector-ref rows row)]
@@ -183,9 +184,9 @@
               (let ([bal (get-bal-for-date acct-date-bals (string->number s-which-stmt-date))])
                 (if bal (format-exact bal 2) "n/a"))
               ""))
-    (send (vector-ref cells (ij-s row "seen-also")) set-value "")
-    (send (vector-ref cells (ij-s row "reconciliation")) set-value "")
-    (send (vector-ref cells (ij-s row "(- ext reconciliation)")) set-value "")))
+    (send (vector-ref cells (ij-s row "new-cr")) set-value "")
+    (send (vector-ref cells (ij-s row "new-dr")) set-value "")
+    (send (vector-ref cells (ij-s row "reconciliation")) set-value "")))
 
 (define (get-bal-for-date date-bals ymd8)
   (cond [(null? date-bals) #f]
