@@ -3,9 +3,7 @@
 (require (prefix-in s19: (lib "19.ss" "srfi"))
          (prefix-in s48: (lib "48.ss" "srfi"))
          db
-         plot
          racket/date
-         data/gvector
          format-numbers
          format-ymd
          (file "~/.ledger-dbaccess.rkt")
@@ -345,7 +343,9 @@
     (for-each (λ (x)
                 (let ([srow (send x get-item)])
                   (printf "~a ~a ~a\n" (statement-item-date srow)
-                          (exact->inexact (statement-item-amount srow))
+                          (~a (format-float
+                               (exact->inexact (statement-item-amount srow)) 2)
+                              #:min-width 9 #:align 'right)
                           (statement-item-description srow))))
               statement-unmatched)
     (printf "\n====== Ledger items not in loaded statements:\n")
@@ -353,10 +353,13 @@
                 (let ([lrow (send x get-item)])
                   (printf "~a ~a ~a ~a ~a\n"
                           (ledger-item-date lrow)
-                          (if (> (ledger-amt acct lrow) 0)
-                              (ledger-item-dr-seen lrow)
-                              (ledger-item-cr-seen lrow))
-                          (exact->inexact (ledger-amt acct lrow))
+                          (~a (format-float
+                               (exact->inexact (ledger-amt acct lrow)) 2)
+                              #:min-width 9 #:align 'right)
+                          (~a (if (> (ledger-amt acct lrow) 0)
+                                  (ledger-item-dr-seen lrow)
+                                  (ledger-item-cr-seen lrow))
+                              #:min-width 2 #:align 'left)
                           (ledger-item-payee lrow)
                           (ledger-item-description lrow))))
               ledger-unmatched)))
@@ -371,8 +374,8 @@
         (check-ledger-statement-match
          ymd8-end ;; is this the right thing? it's really expecting the statement date
          acct ledger-acct-track-item statement-acct-track-item)))
-    (values (filter (λ (x) (send x matched?)) statement-acct-track-items)
-            (filter (λ (x) (send x matched?)) ledger-acct-track-items))))
+    (values (filter (λ (x) (send x unmatched?)) statement-acct-track-items)
+            (filter (λ (x) (send x unmatched?)) ledger-acct-track-items))))
 
 ;(define (amounts-seen-but-not-in-statement acct ymd8 reconciliation-items)
 ;  (map (λ (x)
