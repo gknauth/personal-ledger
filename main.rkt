@@ -153,7 +153,7 @@
     (when (and (= (string-length s-which-stmt-date) 8)
                (> (string-length s-stmt-bal) 0))
       (let* ([ext (string->number (send (vector-ref cells (ij-s row "ext")) get-value))]
-             [stmt-bal (string->number s-stmt-bal)]
+             [stmt-bal (string->number (if (string=? s-stmt-bal "n/a") "0" s-stmt-bal))]
              [new-cr (sum-amounts-new-cr acct stmt-ymd8 reconciliation-items)]
              [new-dr (sum-amounts-new-dr acct stmt-ymd8 reconciliation-items)]
              [reconciliation (+ stmt-bal new-cr new-dr)]
@@ -162,8 +162,9 @@
               (format-exact new-dr 2))
         (send (vector-ref cells (ij-s row "new-cr")) set-value
               (format-exact new-cr 2))
-        (send (vector-ref cells (ij-s row "reconciliation")) set-value
-              (format-exact reconciliation 2))))))
+        (when (not (string=? s-stmt-bal "n/a"))
+          (send (vector-ref cells (ij-s row "reconciliation")) set-value
+                (format-exact reconciliation 2)))))))
 
 (define (update-date-book-ext-diff row)
   (let* ([acct (vector-ref rows row)]
