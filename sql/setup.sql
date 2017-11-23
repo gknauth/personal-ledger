@@ -1,4 +1,8 @@
--- MySQL
+-- MySQL dump 10.13  Distrib 5.6.34, for osx10.12 (x86_64)
+--
+-- Host: localhost    Database: ledger
+-- ------------------------------------------------------
+-- Server version	5.6.34
 
 --
 -- Table structure for table `balances`
