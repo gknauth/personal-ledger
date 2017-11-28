@@ -1,0 +1,3 @@
+(170101 %a00 0.00 (x tbd) (x tbd) ("-*- mode: racket -*-"))
+(170101 %b-chk-bf 123.45 (a chk) (e tbd) ("Bank of GNU" "balance forward 20161231"))
+(170101 %b-sav-bf 543.21 (a sav) (e tbd) ("Bank of GNU" "balance forward 20161231"))

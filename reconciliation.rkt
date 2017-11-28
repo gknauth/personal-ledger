@@ -44,8 +44,6 @@
                            #:password db-passwd
                            #:port db-port))
 
-(define today (today->ymd8))
-
 (define (sub-false-for-sql-null x)
   (if (sql-null? x) #f x))
 
@@ -146,66 +144,66 @@
           ledger-items))
 
 (define (statement<=ymd8 ymd8 statement-items)
-  (filter (λ (srow) (<= (statement-item-date srow) ymd8)) statement-items))
+  (filter (λ (si) (<= (statement-item-date si) ymd8)) statement-items))
 
 (define (statement>=ymd8 ymd8 statement-items)
-  (filter (λ (srow) (>= (statement-item-date srow) ymd8)) statement-items))
+  (filter (λ (si) (>= (statement-item-date si) ymd8)) statement-items))
 
 (define (statement-range ymd8-a ymd8-b statement-items)
-  (filter (λ (srow)
-            (and (>= (statement-item-date srow) ymd8-a) (<= (statement-item-date srow) ymd8-b)))
+  (filter (λ (si)
+            (and (>= (statement-item-date si) ymd8-a) (<= (statement-item-date si) ymd8-b)))
           statement-items))
 
-(define (ledger<=ymd8 ymd8 lst)
-  (filter (λ (lrow) (<= (ledger-item-date lrow) ymd8)) lst))
+(define (ledger<=ymd8 ymd8 ledger-items)
+  (filter (λ (li) (<= (ledger-item-date li) ymd8)) ledger-items))
 
-(define (ledger>=ymd8 ymd8 lst)
-  (filter (λ (lrow) (>= (ledger-item-date lrow) ymd8)) lst))
+(define (ledger>=ymd8 ymd8 ledger-items)
+  (filter (λ (li) (>= (ledger-item-date li) ymd8)) ledger-items))
 
-(define (ledger-range ymd8-a ymd8-b lst)
-  (filter (λ (lrow)
-            (and (>= (ledger-item-date lrow) ymd8-a) (<= (ledger-item-date lrow) ymd8-b)))
-          lst))
+(define (ledger-range ymd8-a ymd8-b ledger-items)
+  (filter (λ (li)
+            (and (>= (ledger-item-date li) ymd8-a) (<= (ledger-item-date li) ymd8-b)))
+          ledger-items))
 
-(define (ledger-range-acct acct ymd8-a ymd8-b lst)
-  (filter (λ (lrow)
-            (or (string=? acct (ledger-item-dr-acct lrow))
-                (string=? acct (ledger-item-cr-acct lrow))))
-          (ledger-range ymd8-a ymd8-b (ledger-filter-acct acct lst))))
+(define (ledger-range-acct acct ymd8-a ymd8-b ledger-items)
+  (filter (λ (li)
+            (or (string=? acct (ledger-item-dr-acct li))
+                (string=? acct (ledger-item-cr-acct li))))
+          (ledger-range ymd8-a ymd8-b (ledger-filter-acct acct ledger-items))))
 
-(define (ledger-range-acct-dr acct ymd8-a ymd8-b lst)
-  (filter (λ (lrow)
-            (string=? acct (ledger-item-dr-acct lrow)))
-          (ledger-range ymd8-a ymd8-b (ledger-filter-acct acct lst))))
+(define (ledger-range-acct-dr acct ymd8-a ymd8-b ledger-items)
+  (filter (λ (li)
+            (string=? acct (ledger-item-dr-acct li)))
+          (ledger-range ymd8-a ymd8-b (ledger-filter-acct acct ledger-items))))
 
-(define (ledger-range-acct-cr acct ymd8-a ymd8-b lst)
-  (filter (λ (lrow)
-            (string=? acct (ledger-item-cr-acct lrow)))
-          (ledger-range ymd8-a ymd8-b (ledger-filter-acct acct lst))))
+(define (ledger-range-acct-cr acct ymd8-a ymd8-b ledger-items)
+  (filter (λ (li)
+            (string=? acct (ledger-item-cr-acct li)))
+          (ledger-range ymd8-a ymd8-b (ledger-filter-acct acct ledger-items))))
 
-(define (ledger-range-signed-amounts acct ymd8-a ymd8-b lst)
-  (map (λ (lrow)
-         (ledger-signed-amount acct lrow))
-       (ledger-range ymd8-a ymd8-b (ledger-filter-acct acct lst))))
+(define (ledger-range-signed-amounts acct ymd8-a ymd8-b ledger-items)
+  (map (λ (li)
+         (ledger-signed-amount acct li))
+       (ledger-range ymd8-a ymd8-b (ledger-filter-acct acct ledger-items))))
 
-(define (ledger-range-signed-amounts-seen acct ymd8-a ymd8-b lst)
-  (map (λ (lrow)
-         (ledger-signed-amount-seen acct lrow))
-       (ledger-range ymd8-a ymd8-b (ledger-filter-acct acct lst))))
+(define (ledger-range-signed-amounts-seen acct ymd8-a ymd8-b ledger-items)
+  (map (λ (li)
+         (ledger-signed-amount-seen acct li))
+       (ledger-range ymd8-a ymd8-b (ledger-filter-acct acct ledger-items))))
 
-(define (ledger-range-signed-amounts-unseen acct ymd8-a ymd8-b lst)
-  (map (λ (lrow)
-         (ledger-signed-amount-unseen acct lrow))
-       (ledger-range ymd8-a ymd8-b (ledger-filter-acct acct lst))))
+(define (ledger-range-signed-amounts-unseen acct ymd8-a ymd8-b ledger-items)
+  (map (λ (li)
+         (ledger-signed-amount-unseen acct li))
+       (ledger-range ymd8-a ymd8-b (ledger-filter-acct acct ledger-items))))
 
-(define (sum-ledger-range-signed-amounts acct ymd8-a ymd8-b lst)
-  (foldl + 0 (ledger-range-signed-amounts acct ymd8-a ymd8-b lst)))
+(define (sum-ledger-range-signed-amounts acct ymd8-a ymd8-b ledger-items)
+  (foldl + 0 (ledger-range-signed-amounts acct ymd8-a ymd8-b ledger-items)))
 
-(define (sum-ledger-range-signed-amounts-seen acct ymd8-a ymd8-b lst)
-  (foldl + 0 (ledger-range-signed-amounts-seen acct ymd8-a ymd8-b lst)))
+(define (sum-ledger-range-signed-amounts-seen acct ymd8-a ymd8-b ledger-items)
+  (foldl + 0 (ledger-range-signed-amounts-seen acct ymd8-a ymd8-b ledger-items)))
 
-(define (sum-ledger-range-signed-amounts-unseen acct ymd8-a ymd8-b lst)
-  (foldl + 0 (ledger-range-signed-amounts-unseen acct ymd8-a ymd8-b lst)))
+(define (sum-ledger-range-signed-amounts-unseen acct ymd8-a ymd8-b ledger-items)
+  (foldl + 0 (ledger-range-signed-amounts-unseen acct ymd8-a ymd8-b ledger-items)))
 
 (define (ledger-amount-dr acct a-ledger-item)
   (if (string=? acct (ledger-item-dr-acct a-ledger-item))
@@ -235,10 +233,10 @@
       (ledger-item-amount a-ledger-item)
       0))
 
-(define (ledger-amount-cr-unseen acct lrow)
-  (if (and (not (ledger-item-cr-seen lrow))
-           (string=? acct (ledger-item-cr-acct lrow)))
-      (ledger-item-amount lrow)
+(define (ledger-amount-cr-unseen acct a-ledger-item)
+  (if (and (not (ledger-item-cr-seen a-ledger-item))
+           (string=? acct (ledger-item-cr-acct a-ledger-item)))
+      (ledger-item-amount a-ledger-item)
       0))
 
 (define (ledger-signed-amount acct a-ledger-item)
@@ -278,8 +276,8 @@
 (define (get-ledger-bal-items acct)
   (get-ledger-bal-items-from acct all-ledger-items 0 0))
 
-(define (get-ledger-bal-items-from acct
-                                   ledger-items starting-balance starting-balance-seen)
+(define (get-ledger-bal-items-from
+         acct ledger-items starting-balance starting-balance-seen)
   (define (helper ins outs running-balance running-balance-seen)
     (if (empty? ins)
         outs
@@ -360,65 +358,140 @@
           [(= mask 5) 'acct-cr-matches]
           [else false])))
 
-; Smonth==11 and num(Ldr-tag)==(+ 11 (* 12 (- statement-year ledger-year)))
-(define (does-ledger-tag-match-statement acct ymd8-statement lrow acct-amount-match)
+; eg: Smonth==11 and num(Ldr-tag)==(+ 11 (* 12 (- statement-year ledger-year)))
+(define (does-ledger-tag-match-statement acct ymd8-statement a-ledger-item acct-amount-match)
   (let* ([statement-year (quotient ymd8-statement 10000)]
          [statement-month (quotient (remainder ymd8-statement 10000) 100)]
-         [ledger-item-year (quotient (ledger-item-date lrow) 10000)]
-         [ledger-item-month (quotient (remainder (ledger-item-date lrow) 10000) 100)]
+         [ledger-item-year (quotient (ledger-item-date a-ledger-item) 10000)]
+         [ledger-item-month (quotient (remainder (ledger-item-date a-ledger-item) 10000) 100)]
          [expected-ledger-tag (+ statement-month (* 12 (- statement-year ledger-item-year)))]
          [s-expected-ledger-tag (fmt-i-02d expected-ledger-tag)]
-         [signed-amount (ledger-signed-amount acct lrow)]
+         [signed-amount (ledger-signed-amount acct a-ledger-item)]
          [actual-ledger-tag
           (cond [(symbol=? acct-amount-match 'acct-amount-dr-and-cr-match)
-                 (cond [(< signed-amount 0) (ledger-item-cr-seen lrow)]
-                       [(> signed-amount 0) (ledger-item-dr-seen lrow)]
-                       [else (let ([ctag (ledger-item-cr-seen lrow)]
-                                   [dtag (ledger-item-dr-seen lrow)])
+                 (cond [(< signed-amount 0) (ledger-item-cr-seen a-ledger-item)]
+                       [(> signed-amount 0) (ledger-item-dr-seen a-ledger-item)]
+                       [else (let ([ctag (ledger-item-cr-seen a-ledger-item)]
+                                   [dtag (ledger-item-dr-seen a-ledger-item)])
                                (if (string? ctag)
                                    (if (string? dtag)
                                        (if (string=? ctag dtag)
                                            ctag
                                            false)
                                        (error "do-ledger-statement-tags-match: No? ~a ~a [~a] ~a"
-                                              (ledger-item-date lrow)
+                                              (ledger-item-date a-ledger-item)
                                               (format-float (exact->inexact signed-amount 2))
                                               dtag ctag))
                                    (error "do-ledger-statement-tags-match: No? ~a ~a ~a [~a]"
-                                          (ledger-item-date lrow)
+                                          (ledger-item-date a-ledger-item)
                                           (format-float (exact->inexact signed-amount 2))
                                           dtag ctag)))])]
-                [(symbol=? acct-amount-match 'acct-amount-dr-matches) (ledger-item-dr-seen lrow)]
-                [(symbol=? acct-amount-match 'acct-amount-cr-matches) (ledger-item-cr-seen lrow)]
+                [(symbol=? acct-amount-match 'acct-amount-dr-matches) (ledger-item-dr-seen a-ledger-item)]
+                [(symbol=? acct-amount-match 'acct-amount-cr-matches) (ledger-item-cr-seen a-ledger-item)]
                 [else false])])
     (and (string? actual-ledger-tag) (string=? actual-ledger-tag s-expected-ledger-tag))))
+
+(define (appropriate-ledger-item-seen-tag acct a-ledger-item)
+  (let ([signed-amount (ledger-signed-amount acct a-ledger-item)])
+    (cond [(< signed-amount 0) (ledger-item-cr-seen a-ledger-item)]
+          [(> signed-amount 0) (ledger-item-dr-seen a-ledger-item)]
+          [else (let ([ctag (ledger-item-cr-seen a-ledger-item)]
+                      [dtag (ledger-item-dr-seen a-ledger-item)])
+                  (if (equal? ctag dtag)
+                      ctag
+                      false))])))
+
+(define std-skip-tags (list "bf" "v"))
+
+(define (sum-ledger-items acct ledger-items)
+  (foldl + 0 (map (λ (li) (ledger-signed-amount acct li)) ledger-items)))
+
+(define (pr-ledger-items acct ledger-items)
+  (for-each (λ (li) (pr-ledger-item acct li)) ledger-items))
+
+(define (pr-filtered-unmatched-ledger-items acct ymd8-end)
+  (pr-ledger-items acct (filtered-unmatched-ledger-items acct ymd8-end)))
+
+(define (filtered-unmatched-ledger-items acct ymd8-end)
+  (let* ([a (unmatched-ledger-items-to-date acct ymd8-end)]
+         [b (ledger-items-exclude-tags std-skip-tags acct a)]
+         [c (ledger-items-exclude-prior-matches acct ymd8-end b)])
+    c))
+
+(define (year-month ymd8)
+  (let ([yyyy (quotient ymd8 10000)]
+        [mm (quotient (remainder ymd8 10000) 100)])
+    (+ (* 100 yyyy) mm)))
+
+(define (effective-year-month ymd8 tag-month)
+  ; 2017mmdd 01 -> 201701
+  ; 2016mmdd 13 -> 201701
+  ; 2015mmdd 25 -> 201701
+  (let-values ([(quo rem) (quotient/remainder tag-month 12)])
+    (+ (* 100 (+ (quotient ymd8 10000) (* quo))) rem)))
+
+(define (compare-year-months a b)
+  (cond [(< a b) -1]
+        [(= a b) 0]
+        [(> a b) 1]))
+
+(define (ledger-items-exclude-prior-matches acct ymd8-end ledger-items)
+  (filter (λ (a-ledger-item)
+            (not (is-prior-month-match acct ymd8-end a-ledger-item)))
+          ledger-items))
+
+(define (is-prior-month-match acct ymd8-end a-ledger-item)
+  (let ([yyyymm-current (year-month ymd8-end)])                         ; eg, 201602
+    (let* ([yyyymmdd-li (ledger-item-date a-ledger-item)]               ; eg, 20160115
+           [yyyymm-li (year-month (ledger-item-date a-ledger-item))]    ; eg, 201601
+           [tag (appropriate-ledger-item-seen-tag acct a-ledger-item)]) ; eg, "01"
+      (if (number? (string->number tag))
+          (< (effective-year-month yyyymmdd-li (string->number tag)) yyyymm-current)
+          false))))
+
+(define (ledger-items-exclude-tags tags-to-exclude acct ledger-items)
+  (filter (λ (li)
+            (not (member (if (> (ledger-signed-amount acct li) 0)
+                             (ledger-item-dr-seen li)
+                             (ledger-item-cr-seen li))
+                         tags-to-exclude)))
+          ledger-items))
+
+(define (unmatched-ledger-items-to-date acct ymd8-end)
+  (let-values ([(statement-unmatched ledger-unmatched) (examine-acct acct ymd8-end)])
+    (map (λ (x)
+           (send x get-item))
+         ledger-unmatched)))
 
 (define (pr-examine-acct acct ymd8-end)
   (let-values ([(statement-unmatched ledger-unmatched) (examine-acct acct ymd8-end)])
     (printf "====== Statement items not in ledger:\n")
     (for-each (λ (x)
-                (let ([srow (send x get-item)])
-                  (printf "~a ~a ~a\n" (statement-item-date srow)
+                (let ([si (send x get-item)])
+                  (printf "~a ~a ~a\n" (statement-item-date si)
                           (~a (format-float
-                               (exact->inexact (statement-item-amount srow)) 2)
+                               (exact->inexact (statement-item-amount si)) 2)
                               #:min-width 9 #:align 'right)
-                          (statement-item-description srow))))
+                          (statement-item-description si))))
               statement-unmatched)
     (printf "\n====== Ledger items not in loaded statements:\n")
     (for-each (λ (x)
-                (let ([lrow (send x get-item)])
-                  (printf "~a ~a ~a ~a / ~a\n"
-                          (ledger-item-date lrow)
-                          (~a (format-float
-                               (exact->inexact (ledger-signed-amount acct lrow)) 2)
-                              #:min-width 9 #:align 'right)
-                          (~a (if (> (ledger-signed-amount acct lrow) 0)
-                                  (ledger-item-dr-seen lrow)
-                                  (ledger-item-cr-seen lrow))
-                              #:min-width 2 #:align 'left)
-                          (ledger-item-payee lrow)
-                          (ledger-item-description lrow))))
+                (let ([li (send x get-item)])
+                  (pr-ledger-item acct li)))
               ledger-unmatched)))
+
+(define (pr-ledger-item acct li)
+  (printf "~a ~a ~a ~a / ~a\n"
+          (ledger-item-date li)
+          (~a (format-float
+               (exact->inexact (ledger-signed-amount acct li)) 2)
+              #:min-width 9 #:align 'right)
+          (~a (if (> (ledger-signed-amount acct li) 0)
+                  (ledger-item-dr-seen li)
+                  (ledger-item-cr-seen li))
+              #:min-width 2 #:align 'left)
+          (ledger-item-payee li)
+          (ledger-item-description li)))
 
 (define (examine-acct acct ymd8-end)
   (let* ([statement-acct-items (statement-filter-acct acct (statement-range jan01 ymd8-end all-statement-items))]

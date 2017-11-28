@@ -14,7 +14,7 @@
 
 (define cols (vector "acct" "date" "book" "ext" "(- ext book)"
                      "stmt" "stmt-bal" "sync"
-                     "new-dr" "new-cr" "reconciliation"))
+                     "new-dr" "new-cr" "reconciliation" "more-seen" "should-match"))
 (define rows (list->vector (cons empty accounts-to-show)))
 (define cells (make-vector (* (vector-length cols) (vector-length rows))))
 
@@ -74,6 +74,8 @@
         (let ([bals (get-statement-balances acct)])
           (hash-set! all-stmt-bals acct bals))))))
 
+(define std-col-width 60)
+
 (define (setup-cells)
   (for ([row (in-range (vector-length rows))])
     (let ([acct (vector-ref rows row)])
@@ -83,7 +85,7 @@
                          (new message%
                               (parent table-panel)
                               (label (vector-ref cols col))
-                              (min-width 100))
+                              (min-width std-col-width))
                          (cond [(= col (col-name-index "stmt")) (new combo-field%
                                                                      (parent table-panel)
                                                                      (label "")
@@ -91,7 +93,7 @@
                                                                                             (hash-ref all-stmt-bals acct))))
                                                                      (callback (λ (t e)
                                                                                  (stmt-date-changed t e row)))
-                                                                     (min-width 100))]
+                                                                     (min-width std-col-width))]
                                [(= col (col-name-index "sync")) (new button%
                                                                      (label "◀")
                                                                      (parent table-panel)
@@ -164,7 +166,12 @@
               (format-exact new-cr 2))
         (when (not (string=? s-stmt-bal "n/a"))
           (send (vector-ref cells (ij-s row "reconciliation")) set-value
-                (format-exact reconciliation 2)))))))
+                (format-exact reconciliation 2))
+          (let ([more-seen (sum-ledger-items acct (filtered-unmatched-ledger-items acct stmt-ymd8))])
+            (send (vector-ref cells (ij-s row "more-seen")) set-value
+                  (format-exact more-seen 2))
+            (send (vector-ref cells (ij-s row "should-match")) set-value
+                  (format-exact (+ reconciliation more-seen) 2))))))))
 
 (define (update-date-book-ext-diff row)
   (let* ([acct (vector-ref rows row)]
@@ -185,9 +192,8 @@
               (let ([bal (get-bal-for-date acct-date-bals (string->number s-which-stmt-date))])
                 (if bal (format-exact bal 2) "n/a"))
               ""))
-    (send (vector-ref cells (ij-s row "new-cr")) set-value "")
-    (send (vector-ref cells (ij-s row "new-dr")) set-value "")
-    (send (vector-ref cells (ij-s row "reconciliation")) set-value "")))
+    (for/list ([colname (list "new-cr" "new-dr" "reconciliation" "more-seen" "should-match")])
+      (send (vector-ref cells (ij-s row colname)) set-value ""))))
 
 (define (get-bal-for-date date-bals ymd8)
   (cond [(null? date-bals) #f]
