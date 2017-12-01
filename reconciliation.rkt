@@ -16,8 +16,6 @@
 
 (struct ledger-bal-item (ledger-item balance balance-seen diff) #:transparent)
 
-(struct reconciliation-item (date amount dr-acct cr-acct payee description dr-seen cr-seen) #:transparent)
-
 (define track-item
   (class object%
     (super-new)
@@ -57,13 +55,6 @@
                (sub-false-for-sql-null (vector-ref x 9))
                (sub-false-for-sql-null (vector-ref x 10))))
 
-(define (row-to-reconciliation-item x)
-  (reconciliation-item (sql-date->ymd8 (vector-ref x 0)) (vector-ref x 1) (vector-ref x 2) (vector-ref x 3)
-                       (sub-false-for-sql-null (vector-ref x 4))
-                       (sub-false-for-sql-null (vector-ref x 5))
-                       (sub-false-for-sql-null (vector-ref x 6))
-                       (sub-false-for-sql-null (vector-ref x 7))))
-
 ; string -> (list-of (list number number))
 (define (get-statement-balances acct)
   (let* ([accttype (substring acct 0 1)]
@@ -89,21 +80,21 @@
                     x
                     (find-previous-statement-date ymd8 (rest statement-balances-going-back-in-time))))]))
 
-(define (find-reconciliation-items acct ymd8-end statement-balances)
+(define (find-reconciliation-ledger-items acct ymd8-end statement-balances)
   (let* ([ymd8-start (find-previous-statement-date ymd8-end (reverse statement-balances))]
          [rows (query-rows
-                con (string-append "select"
-                                   " date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen"
-                                   " from ledger where"
-                                   " (date >  '" (ymd8->ymd10 ymd8-start) "' and"
-                                   "  date <= '" (ymd8->ymd10 ymd8-end)   "')"
-                                   " and"
-                                   " ((dr_acct = '" acct "' and (dr_seen is null or dr_seen = ':' )) "
-                                   "   or "
-                                   "  (cr_acct = '" acct "' and (cr_seen is null or cr_seen = ':' )) )"
-                                   " order by date")
-                )])
-    (map row-to-reconciliation-item rows)))
+                con (string-append
+                     "select"
+                     " date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct"
+                     " from ledger where"
+                     " (date >  '" (ymd8->ymd10 ymd8-start) "' and"
+                     "  date <= '" (ymd8->ymd10 ymd8-end)   "')"
+                     " and"
+                     " ((dr_acct = '" acct "' and (dr_seen is null or dr_seen = ':' )) "
+                     "   or "
+                     "  (cr_acct = '" acct "' and (cr_seen is null or cr_seen = ':' )) )"
+                     " order by date"))])
+    (map row-to-ledger-item rows)))
 
 (define (first-ledger-unseen-discrepancy acct)
   (let ([lbis (ledger-unseen-discrepancies acct)])
@@ -240,12 +231,18 @@
       0))
 
 (define (ledger-signed-amount acct a-ledger-item)
-  (let ([ltr (string-ref acct 0)])
-    (cond [(or (eq? ltr #\a) (eq? ltr #\l) (eq? ltr #\e))
+  (let ([d (account-division acct)])
+    (cond [(eq? d 'balance-sheet)
            (- (ledger-amount-dr acct a-ledger-item) (ledger-amount-cr acct a-ledger-item))]
-          [(or (eq? ltr #\r) (eq? ltr #\x))
+          [(eq? d 'income-statement)
            (- (ledger-amount-cr acct a-ledger-item) (ledger-amount-dr acct a-ledger-item))]
           [else 0])))
+
+(define (account-division acct)
+  (let ([ltr (string-ref acct 0)])
+    (cond [(or (eq? ltr #\a) (eq? ltr #\l) (eq? ltr #\e)) 'balance-sheet]
+          [(or (eq? ltr #\r) (eq? ltr #\x))               'income-statement]
+          [else #f])))
 
 (define (ledger-signed-amount-seen acct a-ledger-item)
   (let ([ltr (string-ref acct 0)])
@@ -308,8 +305,8 @@
 ;;   Smonth==11 and num(Ldr-tag)==(+ 11 (* 12 (- statement-year ledger-year)))
 
 (define (check-ledger-statement-match ymd8-statement acct tl ts)
-  (let* ([srow (send ts get-item)]
-         [lrow (send tl get-item)]
+  (let* ([lrow (send tl get-item)]
+         [srow (send ts get-item)]
          [l-date (ledger-item-date lrow)]
          [s-date (statement-item-date srow)]
          [l-signed-amount (ledger-signed-amount acct lrow)]
@@ -437,10 +434,10 @@
 
 (define (ledger-items-exclude-prior-matches acct ymd8-end ledger-items)
   (filter (λ (a-ledger-item)
-            (not (is-prior-month-match acct ymd8-end a-ledger-item)))
+            (not (is-prior-month-ledger-item-match acct ymd8-end a-ledger-item)))
           ledger-items))
 
-(define (is-prior-month-match acct ymd8-end a-ledger-item)
+(define (is-prior-month-ledger-item-match acct ymd8-end a-ledger-item)
   (let ([yyyymm-current (year-month ymd8-end)])                         ; eg, 201602
     (let* ([yyyymmdd-li (ledger-item-date a-ledger-item)]               ; eg, 20160115
            [yyyymm-li (year-month (ledger-item-date a-ledger-item))]    ; eg, 201601
@@ -516,49 +513,27 @@
                               [else         (send x neither-dr-nor-cr-matched?)])))
                     ledger-acct-track-items))))
 
-;(define (amounts-seen-but-not-in-statement acct ymd8 reconciliation-items)
-;  (map (λ (x)
-;         (let ([x-amount (reconciliation-item-amount x)]
-;               [x-dr-seen (reconciliation-item-dr-seen x)]
-;               [x-cr-seen (reconciliation-item-cr-seen x)])
-;           (+ (if (or (string? x-dr-seen) (symbol? x-dr-seen))
-;                  x-amount
-;                  0)
-;              (if (or (string? x-cr-seen) (symbol? x-cr-seen))
-;                  (- x-amount)
-;                  0))))
-;       reconciliation-items))
-
-;(define (sum-amounts-seen-but-not-in-statement acct ymd8 reconciliation-items)
-;  (apply + (amounts-seen-but-not-in-statement acct ymd8 reconciliation-items)))
-
-; example:
-; it's November, a deposit not in the statement would have x-dr-seen != "11"
-;                a charge  not in the statement would have x-cr-seen != "11"
-; count #f as "new" always
-; count ":" as "new" if it's older than the LAST statement
-;
-(define (amounts-new-dr-cr acct ymd8 reconciliation-items typ)
+(define (amounts-new-dr-cr acct ymd8 reconciliation-ledger-items typ)
   (map (λ (x)
-         (let ([x-amount (reconciliation-item-amount x)]
-               [x-dr-seen (reconciliation-item-dr-seen x)]
-               [x-cr-seen (reconciliation-item-cr-seen x)])1
+         (let ([x-amount (ledger-item-amount x)]
+               [x-dr-seen (ledger-item-dr-seen x)]
+               [x-cr-seen (ledger-item-cr-seen x)])1
            (cond [(and (symbol=? typ 'dr)
-                       (string=? acct (reconciliation-item-dr-acct x))
+                       (string=? acct (ledger-item-dr-acct x))
                        (or (false? x-dr-seen) (and (string? x-dr-seen) (string=? x-dr-seen ":"))))
                   x-amount]
                  [(and (symbol=? typ 'cr)
-                       (string=? acct (reconciliation-item-cr-acct x))
+                       (string=? acct (ledger-item-cr-acct x))
                        (or (false? x-cr-seen) (and (string? x-cr-seen) (string=? x-cr-seen ":"))))
                   (- x-amount)]
                  [else 0])))
-       reconciliation-items))
+       reconciliation-ledger-items))
 
-(define (sum-amounts-new-cr acct stmt-ymd8 reconciliation-items)
-  (apply + (amounts-new-dr-cr acct stmt-ymd8 reconciliation-items 'cr)))
+(define (sum-amounts-new-cr acct stmt-ymd8 reconciliation-ledger-items)
+  (apply + (amounts-new-dr-cr acct stmt-ymd8 reconciliation-ledger-items 'cr)))
 
-(define (sum-amounts-new-dr acct stmt-ymd8 reconciliation-items)
-  (apply + (amounts-new-dr-cr acct stmt-ymd8 reconciliation-items 'dr)))
+(define (sum-amounts-new-dr acct stmt-ymd8 reconciliation-ledger-items)
+  (apply + (amounts-new-dr-cr acct stmt-ymd8 reconciliation-ledger-items 'dr)))
 
 ; balance shown on statement
 ; + deposits in ledger that are not on statement
@@ -566,36 +541,36 @@
 ; total should be same as statement
 
 (define (pr-unreconciled acct ymd8)
-  (let* ([reconciliation-items (find-reconciliation-items acct ymd8 (get-statement-balances acct))])
+  (let* ([reconciliation-ledger-items (find-reconciliation-ledger-items acct ymd8 (get-statement-balances acct))])
     (printf "\n======== ~a TOTAL ===== Debits Not Reconciled to a Statement\n"
             (~a (format-float
-                 (sum-amounts-new-dr acct ymd8 reconciliation-items) 2)
+                 (sum-amounts-new-dr acct ymd8 reconciliation-ledger-items) 2)
                 #:min-width 9 #:align 'right))
     (for-each (λ (x)
-                (when (string=? acct (reconciliation-item-dr-acct x))
+                (when (string=? acct (ledger-item-dr-acct x))
                   (printf "~a ~a ~a (~a) ~a / ~a\n"
-                          (reconciliation-item-date x)
+                          (ledger-item-date x)
                           (~a
-                           (format-float (exact->inexact (reconciliation-item-amount x)) 2)
+                           (format-float (exact->inexact (ledger-item-amount x)) 2)
                            #:min-width 9 #:align 'right)
-                          (if (reconciliation-item-dr-seen x) ":" " ")
-                          (reconciliation-item-cr-acct x)
-                          (reconciliation-item-payee x)
-                          (reconciliation-item-description x))))
-              reconciliation-items)
+                          (if (ledger-item-dr-seen x) ":" " ")
+                          (ledger-item-cr-acct x)
+                          (ledger-item-payee x)
+                          (ledger-item-description x))))
+              reconciliation-ledger-items)
     (printf "\n======== ~a TOTAL ===== Credits Not Reconciled to a Statement\n"
             (~a (format-float
-                 (sum-amounts-new-cr acct ymd8 reconciliation-items) 2)
+                 (sum-amounts-new-cr acct ymd8 reconciliation-ledger-items) 2)
                 #:min-width 9 #:align 'right))
     (for-each (λ (x)
-                (when (string=? acct (reconciliation-item-cr-acct x))
+                (when (string=? acct (ledger-item-cr-acct x))
                   (printf "~a ~a ~a (~a) ~a / ~a\n"
-                          (reconciliation-item-date x)
+                          (ledger-item-date x)
                           (~a
-                           (format-float (exact->inexact (- (reconciliation-item-amount x))) 2)
+                           (format-float (exact->inexact (- (ledger-item-amount x))) 2)
                            #:min-width 9 #:align 'right)
-                          (if (reconciliation-item-cr-seen x) ":" " ")
-                          (reconciliation-item-dr-acct x)
-                          (reconciliation-item-payee x)
-                          (reconciliation-item-description x))))
-              reconciliation-items)))
+                          (if (ledger-item-cr-seen x) ":" " ")
+                          (ledger-item-dr-acct x)
+                          (ledger-item-payee x)
+                          (ledger-item-description x))))
+              reconciliation-ledger-items)))

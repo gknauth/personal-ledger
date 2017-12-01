@@ -219,7 +219,18 @@
   (send frame show #t))
 
 (module+ test
-  (require rackunit))
+  (require rackunit)
+  (require "tests/test-amounts-new-dr-cr.rkt")
+  (require "tests/test-sum-ledger-items.rkt")
+  )
+
+(module+ test
+  ;; Tests to be run with raco test
+  )
+
+(module+ main
+  ;; Main entry point, executed when run with the `racket` executable or DrRacket.
+  )
 
 ;; Notice
 ;; To install (from within the package directory):
@@ -242,12 +253,5 @@
 ;; See the current version of the racket style guide here:
 ;; http://docs.racket-lang.org/style/index.html
 
-;; Code here
 
-(module+ test
-  ;; Tests to be run with raco test
-  )
 
-(module+ main
-  ;; Main entry point, executed when run with the `racket` executable or DrRacket.
-  )
