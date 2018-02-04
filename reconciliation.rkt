@@ -49,11 +49,27 @@
   (statement-item (vector-ref x 1) (sql-date->ymd8 (vector-ref x 2)) (vector-ref x 3) (vector-ref x 4)))
 
 (define (row-to-ledger-item x)
-  (ledger-item (sql-date->ymd8 (vector-ref x 1)) (vector-ref x 2) (vector-ref x 3) (vector-ref x 4) (vector-ref x 5) (vector-ref x 6)
+  (when (number? (vector-ref x 1))
+    (printf "~a ~a ~a ~a ~a ~a ~a\n"
+            (vector-ref x 1)
+            (vector-ref x 2)
+            (vector-ref x 3)
+            (vector-ref x 4)
+            (vector-ref x 5)
+            (vector-ref x 6)
+            (vector-ref x 7)
+    ))
+  (ledger-item (sql-date->ymd8 (vector-ref x 1))
+               (vector-ref x 2)
+               (vector-ref x 3)
+               (vector-ref x 4)
+               (vector-ref x 5)
+               (vector-ref x 6)
                (sub-false-for-sql-null (vector-ref x 7))
                (sub-false-for-sql-null (vector-ref x 8))
                (sub-false-for-sql-null (vector-ref x 9))
                (sub-false-for-sql-null (vector-ref x 10))))
+  
 
 ; string -> (list-of (list number number))
 (define (get-statement-balances acct)
@@ -66,6 +82,28 @@
                                "' and isstmt is true order by date"))])
     (map (λ (row)
            (list (sql-date->ymd8 (vector-ref row 0)) (vector-ref row 1))) rows)))
+
+; string -> (list-of number)
+(define (get-statement-dates acct)
+  (map first (get-statement-balances acct)))
+
+; string number number -> (listof number number number number)l
+(define (calculate-reconciliation acct stmt-ymd8 stmt-bal)
+  (let* ([statement-balances (get-statement-balances acct)]
+         [reconciliation-items (find-reconciliation-ledger-items acct stmt-ymd8 statement-balances)]
+         [new-dr (sum-amounts-new-dr acct stmt-ymd8 reconciliation-items)]
+         [new-cr (sum-amounts-new-cr acct stmt-ymd8 reconciliation-items)]
+         [reconciliation (+ stmt-bal new-cr new-dr)]
+         [diff (- stmt-bal reconciliation)])
+    (list new-dr new-cr reconciliation diff)))
+
+; string -> (listof (list of number number number number))
+(define (get-reconciliations acct)
+  (map (λ (x)
+         (calculate-reconciliation acct (first x) (second x)))
+       (get-statement-balances acct)))
+
+
 
 ; num num -> (list-of statement-item)
 (define (get-statement-items start-year end-year)
@@ -85,7 +123,7 @@
          [rows (query-rows
                 con (string-append
                      "select"
-                     " date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct"
+                     " id,date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct"
                      " from ledger where"
                      " (date >  '" (ymd8->ymd10 ymd8-start) "' and"
                      "  date <= '" (ymd8->ymd10 ymd8-end)   "')"
@@ -122,7 +160,7 @@
 ; num num -> (list-of ledger-item)
 (define (get-ledger-items start-year end-year)
   (let ([rows (query-rows
-               con (string-append "select * from ledger where date>='" (number->string start-year) "-01-01' and date<='" (number->string end-year) "-12-31' order by date"))])
+               con (string-append "select id,date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct from ledger where date>='" (number->string start-year) "-01-01' and date<='" (number->string end-year) "-12-31' order by date"))])
     (map row-to-ledger-item rows)))
 
 (define (statement-filter-acct acct statement-items)
@@ -438,13 +476,40 @@
           ledger-items))
 
 (define (is-prior-month-ledger-item-match acct ymd8-end a-ledger-item)
+  (is-prior/later-month-ledger-item-match acct ymd8-end a-ledger-item <))
+
+(define (is-later-month-ledger-item-match acct ymd8-end a-ledger-item)
+  (is-prior/later-month-ledger-item-match acct ymd8-end a-ledger-item >))
+
+(define (is-prior/later-month-ledger-item-match acct ymd8-end a-ledger-item op)
   (let ([yyyymm-current (year-month ymd8-end)])                         ; eg, 201602
     (let* ([yyyymmdd-li (ledger-item-date a-ledger-item)]               ; eg, 20160115
            [yyyymm-li (year-month (ledger-item-date a-ledger-item))]    ; eg, 201601
            [tag (appropriate-ledger-item-seen-tag acct a-ledger-item)]) ; eg, "01"
       (if (number? (string->number tag))
-          (< (effective-year-month yyyymmdd-li (string->number tag)) yyyymm-current)
+          (op (effective-year-month yyyymmdd-li (string->number tag)) yyyymm-current)
           false))))
+
+(define (outstanding-item-amount-as-of ymd8-end typ acct a-ledger-item)
+  (let ([x-amount (ledger-item-amount a-ledger-item)]
+        [x-dr-seen (ledger-item-dr-seen a-ledger-item)]
+        [x-cr-seen (ledger-item-cr-seen a-ledger-item)])
+    (cond [(symbol=? typ 'dr)
+           (if (and (string=? acct (ledger-item-dr-acct a-ledger-item))
+                    (is-outstanding-item-as-of acct ymd8-end a-ledger-item x-dr-seen))
+               x-amount
+               0)]
+          [(symbol=? typ 'cr)
+           (if (and (string=? acct (ledger-item-cr-acct a-ledger-item))
+                    (is-outstanding-item-as-of acct ymd8-end a-ledger-item x-cr-seen))
+               (- x-amount)
+               0)]
+          [else (error "outstanding-as-of: typ neither 'dr nor 'cr, instead got: " typ)])))
+
+(define (is-outstanding-item-as-of acct ymd8-end a-ledger-item seen)
+  (or (false? seen)
+      (and (string? seen) (string=? seen ":"))
+      (is-later-month-ledger-item-match acct ymd8-end a-ledger-item)))
 
 (define (ledger-items-exclude-tags tags-to-exclude acct ledger-items)
   (filter (λ (li)
@@ -507,33 +572,22 @@
                               [else         (send x neither-dr-nor-cr-matched?)])))
                     statement-acct-track-items)
             (filter (λ (x)
-                      (let ([amount (ledger-signed-amount acct (send x get-item))])
+                      (let ([amount (ledger-signed-amount acct (send x get-item))])1
                         (cond [(< amount 0) (send x cr-unmatched?)]
                               [(> amount 0) (send x dr-unmatched?)]
                               [else         (send x neither-dr-nor-cr-matched?)])))
                     ledger-acct-track-items))))
 
-(define (amounts-new-dr-cr acct ymd8 reconciliation-ledger-items typ)
-  (map (λ (x)
-         (let ([x-amount (ledger-item-amount x)]
-               [x-dr-seen (ledger-item-dr-seen x)]
-               [x-cr-seen (ledger-item-cr-seen x)])1
-           (cond [(and (symbol=? typ 'dr)
-                       (string=? acct (ledger-item-dr-acct x))
-                       (or (false? x-dr-seen) (and (string? x-dr-seen) (string=? x-dr-seen ":"))))
-                  x-amount]
-                 [(and (symbol=? typ 'cr)
-                       (string=? acct (ledger-item-cr-acct x))
-                       (or (false? x-cr-seen) (and (string? x-cr-seen) (string=? x-cr-seen ":"))))
-                  (- x-amount)]
-                 [else 0])))
-       reconciliation-ledger-items))
+(define (amounts-new-dr-cr ymd8 typ acct ledger-items)
+  (map (λ (li)
+         (outstanding-item-amount-as-of ymd8 typ acct li))
+       ledger-items))
 
-(define (sum-amounts-new-cr acct stmt-ymd8 reconciliation-ledger-items)
-  (apply + (amounts-new-dr-cr acct stmt-ymd8 reconciliation-ledger-items 'cr)))
+(define (sum-amounts-new-cr acct stmt-ymd8 ledger-items)
+  (apply + (amounts-new-dr-cr stmt-ymd8 'cr acct ledger-items)))
 
-(define (sum-amounts-new-dr acct stmt-ymd8 reconciliation-ledger-items)
-  (apply + (amounts-new-dr-cr acct stmt-ymd8 reconciliation-ledger-items 'dr)))
+(define (sum-amounts-new-dr acct stmt-ymd8 ledger-items)
+  (apply + (amounts-new-dr-cr stmt-ymd8 'dr acct ledger-items)))
 
 ; balance shown on statement
 ; + deposits in ledger that are not on statement

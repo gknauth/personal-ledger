@@ -151,7 +151,7 @@
          [stmt-ymd8 (string->number s-which-stmt-date)]
          [s-stmt-bal (send (vector-ref cells (ij-s row "stmt-bal")) get-value)]
          [statement-balances (get-statement-balances acct)]
-         [reconciliation-items (find-reconciliation-items acct stmt-ymd8 statement-balances)])
+         [reconciliation-items (find-reconciliation-ledger-items acct stmt-ymd8 statement-balances)])
     (when (and (= (string-length s-which-stmt-date) 8)
                (> (string-length s-stmt-bal) 0))
       (let* ([ext (string->number (send (vector-ref cells (ij-s row "ext")) get-value))]
