@@ -308,6 +308,7 @@
 (define all-statement-items (get-statement-items start-year end-year))
 (define all-ledger-items (get-ledger-items start-year end-year))
 
+; string -> (listof ledget-bal-item)
 (define (get-ledger-bal-items acct)
   (get-ledger-bal-items-from acct all-ledger-items 0 0))
 
@@ -453,18 +454,21 @@
          [c (ledger-items-exclude-prior-matches acct ymd8-end b)])
     c))
 
+; ymd8 -> ym6
 (define (year-month ymd8)
   (let ([yyyy (quotient ymd8 10000)]
         [mm (quotient (remainder ymd8 10000) 100)])
     (+ (* 100 yyyy) mm)))
 
+; 2017mmdd 01 -> 201701
+; 2016mmdd 13 -> 201701
+; 2015mmdd 25 -> 201701
+; ymd8 integer -> ym6
 (define (effective-year-month ymd8 tag-month)
-  ; 2017mmdd 01 -> 201701
-  ; 2016mmdd 13 -> 201701
-  ; 2015mmdd 25 -> 201701
   (let-values ([(quo rem) (quotient/remainder tag-month 12)])
     (+ (* 100 (+ (quotient ymd8 10000) (* quo))) rem)))
 
+; integer integer -> (oneof -1 0 1)
 (define (compare-year-months a b)
   (cond [(< a b) -1]
         [(= a b) 0]

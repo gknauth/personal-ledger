@@ -18,6 +18,8 @@
 (define rows (list->vector (cons empty accounts-to-show)))
 (define cells (make-vector (* (vector-length cols) (vector-length rows))))
 
+; get the column index for the name, -1 if no such column name
+; string -> integer
 (define (col-name-index name)
   (define (helper name lst i)
     (cond [(empty? lst) -1]
@@ -34,9 +36,11 @@
     (column-stretchability #t)
     (row-stretchability #f)))
 
+; integer integer -> integer
 (define (ij row col)
   (+ (* row (vector-length cols)) col))
 
+; integer string -> integer
 (define (ij-s row col-name)
   (let ([col (col-name-index col-name)])
     (if (= -1 col)
@@ -125,17 +129,24 @@
     (when (> (string-length s-as-of) 0)
       (update-book-ext-diff row (string->number s-as-of)))))
 
-(define (update-book-ext-diff row ymd8)
-  (let* ([acct (send (vector-ref cells (ij-s row "acct")) get-value)]
-         [xs (get-ledger-bal-items acct)]
-         [bals (timeline-acct-balances acct ymd8)])
-    (let* ([book (first bals)]
+(define (get-book-ext-diff acct ymd8)
+    (let* ([xs (get-ledger-bal-items acct)]
+           [bals (acct-book-and-ext-balances-on-date acct ymd8)]
+           [book (first bals)]
            [ext (second bals)]
            [ext-minus-book (- ext book)])
-      (send (vector-ref cells (ij-s row "book")) set-value (format-exact book 2))
-      (send (vector-ref cells (ij-s row "ext")) set-value (format-exact ext 2))
-      (send (vector-ref cells (ij-s row "(- ext book)"))
-            set-value (format-exact ext-minus-book 2)))))
+      (list book ext ext-minus-book)))
+
+(define (update-book-ext-diff row ymd8)
+  (let* ([acct (send (vector-ref cells (ij-s row "acct")) get-value)]
+         [book-ext-diff (get-book-ext-diff acct ymd8)]
+         [book (first book-ext-diff)]
+         [ext (second book-ext-diff)]
+         [ext-minus-book (third book-ext-diff)])
+    (send (vector-ref cells (ij-s row "book")) set-value (format-exact book 2))
+    (send (vector-ref cells (ij-s row "ext")) set-value (format-exact ext 2))
+    (send (vector-ref cells (ij-s row "(- ext book)"))
+            set-value (format-exact ext-minus-book 2))))
 
 (define (date-changed t e row)
   (when (eq? (send e get-event-type) 'text-field-enter)
@@ -195,12 +206,14 @@
     (for/list ([colname (list "new-cr" "new-dr" "reconciliation" "more-seen" "should-match")])
       (send (vector-ref cells (ij-s row colname)) set-value ""))))
 
+; to return a number ymd8 must be one of the ymd8 values in the list
+; (listof (list ymd8 exact)) ymd8 -> (or exact #f)
 (define (get-bal-for-date date-bals ymd8)
   (cond [(null? date-bals) #f]
         [(= (first (first date-bals)) ymd8) (second (first date-bals))]
         [else (get-bal-for-date (rest date-bals) ymd8)]))
 
-(define (timeline-acct-balances acct as-of)
+(define (acct-book-and-ext-balances-on-date acct as-of)
   (let* ([xs (get-ledger-bal-items acct)]
          [ys (filter (λ (x)
                        (<= (ledger-item-date (ledger-bal-item-ledger-item x)) as-of))
