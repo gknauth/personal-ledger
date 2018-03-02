@@ -486,7 +486,7 @@
     (let* ([yyyymmdd-li (ledger-item-date a-ledger-item)]               ; eg, 20160115
            [yyyymm-li (year-month (ledger-item-date a-ledger-item))]    ; eg, 201601
            [tag (appropriate-ledger-item-seen-tag acct a-ledger-item)]) ; eg, "01"
-      (if (number? (string->number tag))
+      (if (and (string? tag) (number? (string->number tag)))
           (op (effective-year-month yyyymmdd-li (string->number tag)) yyyymm-current)
           false))))
 
