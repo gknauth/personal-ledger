@@ -5,7 +5,7 @@
 (require table-panel
          format-ymd
          format-numbers
-         "reconciliation.rkt"
+         "ledger.rkt"
          (file "~/.ledger-prefs.rkt"))
 
 (define frame
@@ -36,6 +36,7 @@
     (column-stretchability #t)
     (row-stretchability #f)))
 
+; get the 1D vector index given 2D row col
 ; integer integer -> integer
 (define (ij row col)
   (+ (* row (vector-length cols)) col))
@@ -68,8 +69,6 @@
                            (reset-width)
                            (callback t e))])
     (reset-width)))
-
-(define all-stmt-bals (make-hash))
 
 (define (setup-stmt-bals)
   (for ([row (in-range (vector-length rows))])
@@ -129,14 +128,6 @@
     (when (> (string-length s-as-of) 0)
       (update-book-ext-diff row (string->number s-as-of)))))
 
-(define (get-book-ext-diff acct ymd8)
-    (let* ([xs (get-ledger-bal-items acct)]
-           [bals (acct-book-and-ext-balances-on-date acct ymd8)]
-           [book (first bals)]
-           [ext (second bals)]
-           [ext-minus-book (- ext book)])
-      (list book ext ext-minus-book)))
-
 (define (update-book-ext-diff row ymd8)
   (let* ([acct (send (vector-ref cells (ij-s row "acct")) get-value)]
          [book-ext-diff (get-book-ext-diff acct ymd8)]
@@ -160,17 +151,16 @@
   (let* ([acct (vector-ref rows row)]
          [s-which-stmt-date (send (vector-ref cells (ij-s row "stmt")) get-value)]
          [stmt-ymd8 (string->number s-which-stmt-date)]
-         [s-stmt-bal (send (vector-ref cells (ij-s row "stmt-bal")) get-value)]
-         [statement-balances (get-statement-balances acct)]
-         [reconciliation-items (find-reconciliation-ledger-items acct stmt-ymd8 statement-balances)])
+         [s-stmt-bal (send (vector-ref cells (ij-s row "stmt-bal")) get-value)])
     (when (and (= (string-length s-which-stmt-date) 8)
                (> (string-length s-stmt-bal) 0))
       (let* ([ext (string->number (send (vector-ref cells (ij-s row "ext")) get-value))]
              [stmt-bal (string->number (if (string=? s-stmt-bal "n/a") "0" s-stmt-bal))]
-             [new-cr (sum-amounts-new-cr acct stmt-ymd8 reconciliation-items)]
-             [new-dr (sum-amounts-new-dr acct stmt-ymd8 reconciliation-items)]
-             [reconciliation (+ stmt-bal new-cr new-dr)]
-             [ext-minus-reconciliation (- ext reconciliation)])
+             [cr-dr-rec-diff (get-new-cr-new-dr-reconciliation-extdiff acct stmt-ymd8 ext)]
+             [new-cr (first cr-dr-rec-diff)]
+             [new-dr (second cr-dr-rec-diff)]
+             [reconciliation (third cr-dr-rec-diff)]
+             [ext-minus-reconciliation (fourth cr-dr-rec-diff)])
         (send (vector-ref cells (ij-s row "new-dr")) set-value
               (format-exact new-dr 2))
         (send (vector-ref cells (ij-s row "new-cr")) set-value
@@ -205,24 +195,6 @@
               ""))
     (for/list ([colname (list "new-cr" "new-dr" "reconciliation" "more-seen" "should-match")])
       (send (vector-ref cells (ij-s row colname)) set-value ""))))
-
-; to return a number ymd8 must be one of the ymd8 values in the list
-; (listof (list ymd8 exact)) ymd8 -> (or exact #f)
-(define (get-bal-for-date date-bals ymd8)
-  (cond [(null? date-bals) #f]
-        [(= (first (first date-bals)) ymd8) (second (first date-bals))]
-        [else (get-bal-for-date (rest date-bals) ymd8)]))
-
-(define (acct-book-and-ext-balances-on-date acct as-of)
-  (let* ([xs (get-ledger-bal-items acct)]
-         [ys (filter (λ (x)
-                       (<= (ledger-item-date (ledger-bal-item-ledger-item x)) as-of))
-                     xs)])
-    (if (empty? ys)
-        (list 0 0)
-        (list (ledger-bal-item-balance (first (reverse ys)))
-              (ledger-bal-item-balance-seen (first (reverse ys)))))
-    ))
 
 (setup-stmt-bals)
 (setup-cells)
