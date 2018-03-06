@@ -44,6 +44,78 @@
 
 (define all-stmt-bals (make-hash))
 
+;;; Database Calls
+
+; string -> (list-of (list number number))
+(define (db-get-statement-balances acct)
+  (let* ([accttype (substring acct 0 1)]
+         [acctname (substring acct 2)]
+         [rows (query-rows
+                con
+                (string-append "select date, amount from balances where acct_type = '" accttype
+                               "' and acct_name = '" acctname
+                               "' and isstmt is true order by date"))])
+    (map (λ (row)
+           (list (sql-date->ymd8 (vector-ref row 0)) (vector-ref row 1))) rows)))
+
+(define (sql-date->ymd8 d)
+  (+ (* (sql-date-year d) 10000)
+     (* (sql-date-month d) 100)
+     (* (sql-date-day d))))
+
+; vector -> statement-item
+(define (row-to-statement-item x)
+  (statement-item (vector-ref x 1) (sql-date->ymd8 (vector-ref x 2)) (vector-ref x 3) (vector-ref x 4)))
+
+; num num -> (list-of statement-item)
+(define (db-get-statement-items start-year end-year)
+  (let ([rows (query-rows
+               con (string-append "select * from statements where date>='" (number->string start-year) "-01-01' and date<='" (number->string end-year) "-12-31' order by date"))])
+    (map row-to-statement-item rows)))
+
+(define (db-get-reconciliation-ledger-items acct ymd8-end statement-balances)
+  (let* ([ymd8-start (find-previous-statement-date ymd8-end (reverse statement-balances))]
+         [rows (query-rows
+                con (string-append
+                     "select"
+                     " id,date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct"
+                     " from ledger where"
+                     " (date >  '" (ymd8->ymd10 ymd8-start) "' and"
+                     "  date <= '" (ymd8->ymd10 ymd8-end)   "')"
+                     " and"
+                     " ((dr_acct = '" acct "' and (dr_seen is null or dr_seen = ':' )) "
+                     "   or "
+                     "  (cr_acct = '" acct "' and (cr_seen is null or cr_seen = ':' )) )"
+                     " order by date"))])
+    (map row-to-ledger-item rows)))
+
+(define (sub-false-for-sql-null x)
+  (if (sql-null? x) #f x))
+
+; vector -> ledger-item
+(define (row-to-ledger-item x)
+  (ledger-item (sql-date->ymd8 (vector-ref x 1))
+               (vector-ref x 2)
+               (vector-ref x 3)
+               (vector-ref x 4)
+               (vector-ref x 5)
+               (vector-ref x 6)
+               (sub-false-for-sql-null (vector-ref x 7))
+               (sub-false-for-sql-null (vector-ref x 8))
+               (sub-false-for-sql-null (vector-ref x 9))
+               (sub-false-for-sql-null (vector-ref x 10))))
+
+; num num -> (list-of ledger-item)
+(define (db-get-ledger-items start-year end-year)
+  (let ([rows (query-rows
+               con (string-append "select id,date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct from ledger where date>='" (number->string start-year) "-01-01' and date<='" (number->string end-year) "-12-31' order by date"))])
+    (map row-to-ledger-item rows)))
+
+(define all-statement-items (db-get-statement-items start-year end-year))
+(define all-ledger-items (db-get-ledger-items start-year end-year))
+
+;;; End Database Calls
+
 (define (get-book-ext-diff acct ymd8)
     (let* ([xs (get-ledger-bal-items acct)]
            [bals (acct-book-and-ext-balances-on-date acct ymd8)]
@@ -69,38 +141,6 @@
   (cond [(null? date-bals) (error "balance unavailable for date" ymd8)]
         [(= (first (first date-bals)) ymd8) (second (first date-bals))]
         [else (get-bal-for-date (rest date-bals) ymd8)]))
-
-(define (sub-false-for-sql-null x)
-  (if (sql-null? x) #f x))
-
-; vector -> statement-item
-(define (row-to-statement-item x)
-  (statement-item (vector-ref x 1) (sql-date->ymd8 (vector-ref x 2)) (vector-ref x 3) (vector-ref x 4)))
-
-; vector -> ledger-item
-(define (row-to-ledger-item x)
-  (ledger-item (sql-date->ymd8 (vector-ref x 1))
-               (vector-ref x 2)
-               (vector-ref x 3)
-               (vector-ref x 4)
-               (vector-ref x 5)
-               (vector-ref x 6)
-               (sub-false-for-sql-null (vector-ref x 7))
-               (sub-false-for-sql-null (vector-ref x 8))
-               (sub-false-for-sql-null (vector-ref x 9))
-               (sub-false-for-sql-null (vector-ref x 10))))
-
-; string -> (list-of (list number number))
-(define (db-get-statement-balances acct)
-  (let* ([accttype (substring acct 0 1)]
-         [acctname (substring acct 2)]
-         [rows (query-rows
-                con
-                (string-append "select date, amount from balances where acct_type = '" accttype
-                               "' and acct_name = '" acctname
-                               "' and isstmt is true order by date"))])
-    (map (λ (row)
-           (list (sql-date->ymd8 (vector-ref row 0)) (vector-ref row 1))) rows)))
 
 ; string -> (list-of number)
 (define (get-statement-dates acct)
@@ -131,34 +171,12 @@
          (cons (first ymd8-bal) (get-new-dr-new-cr-reconciliation-diff acct (first ymd8-bal) (second ymd8-bal))))
        (db-get-statement-balances acct)))
 
-; num num -> (list-of statement-item)
-(define (db-get-statement-items start-year end-year)
-  (let ([rows (query-rows
-               con (string-append "select * from statements where date>='" (number->string start-year) "-01-01' and date<='" (number->string end-year) "-12-31' order by date"))])
-    (map row-to-statement-item rows)))
-
 (define (find-previous-statement-date ymd8 statement-balances-going-back-in-time)
   (cond [(empty? statement-balances-going-back-in-time) jan01] ;FIXME needs to be > dec31 not jan01
         [else (let ([x (first (first statement-balances-going-back-in-time))])
                 (if (< x ymd8)
                     x
                     (find-previous-statement-date ymd8 (rest statement-balances-going-back-in-time))))]))
-
-(define (db-get-reconciliation-ledger-items acct ymd8-end statement-balances)
-  (let* ([ymd8-start (find-previous-statement-date ymd8-end (reverse statement-balances))]
-         [rows (query-rows
-                con (string-append
-                     "select"
-                     " id,date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct"
-                     " from ledger where"
-                     " (date >  '" (ymd8->ymd10 ymd8-start) "' and"
-                     "  date <= '" (ymd8->ymd10 ymd8-end)   "')"
-                     " and"
-                     " ((dr_acct = '" acct "' and (dr_seen is null or dr_seen = ':' )) "
-                     "   or "
-                     "  (cr_acct = '" acct "' and (cr_seen is null or cr_seen = ':' )) )"
-                     " order by date"))])
-    (map row-to-ledger-item rows)))
 
 (define (first-ledger-unseen-discrepancy acct)
   (let ([lbis (ledger-unseen-discrepancies acct)])
@@ -182,12 +200,6 @@
               (helper acct (rest ins) outs running-discrepancy)
               (helper acct (rest ins) (cons (first ins) outs) new-diff)))))
   (reverse (helper acct (ledger-unseen-discrepancies acct) empty 0)))
-
-; num num -> (list-of ledger-item)
-(define (db-get-ledger-items start-year end-year)
-  (let ([rows (query-rows
-               con (string-append "select id,date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct from ledger where date>='" (number->string start-year) "-01-01' and date<='" (number->string end-year) "-12-31' order by date"))])
-    (map row-to-ledger-item rows)))
 
 (define (statement-filter-acct acct statement-items)
   (filter (λ (srow) (string=? (statement-item-acct srow) acct)) statement-items))
@@ -325,14 +337,6 @@
           [(or (eq? ltr #\r) (eq? ltr #\x))
            (- (ledger-amount-cr-unseen acct a-ledger-item) (ledger-amount-dr-unseen acct a-ledger-item))]
           [else 0])))
-
-(define (sql-date->ymd8 d)
-  (+ (* (sql-date-year d) 10000)
-     (* (sql-date-month d) 100)
-     (* (sql-date-day d))))
-
-(define all-statement-items (db-get-statement-items start-year end-year))
-(define all-ledger-items (db-get-ledger-items start-year end-year))
 
 ; string -> (listof ledget-bal-item)
 (define (get-ledger-bal-items acct)
