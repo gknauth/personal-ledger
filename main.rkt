@@ -74,7 +74,7 @@
   (for ([row (in-range (vector-length rows))])
     (let ([acct (vector-ref rows row)])
       (when (not (null? acct))
-        (let ([bals (get-statement-balances acct)])
+        (let ([bals (db-get-statement-balances acct)])
           (hash-set! all-stmt-bals acct bals))))))
 
 (define std-col-width 60)
@@ -156,11 +156,11 @@
                (> (string-length s-stmt-bal) 0))
       (let* ([ext (string->number (send (vector-ref cells (ij-s row "ext")) get-value))]
              [stmt-bal (string->number (if (string=? s-stmt-bal "n/a") "0" s-stmt-bal))]
-             [cr-dr-rec-diff (get-new-cr-new-dr-reconciliation-extdiff acct stmt-ymd8 ext)]
-             [new-cr (first cr-dr-rec-diff)]
-             [new-dr (second cr-dr-rec-diff)]
-             [reconciliation (third cr-dr-rec-diff)]
-             [ext-minus-reconciliation (fourth cr-dr-rec-diff)])
+             [dr-cr-rec-diff (get-new-dr-new-cr-reconciliation-diff acct stmt-ymd8 ext)]
+             [new-dr (first dr-cr-rec-diff)]
+             [new-cr (second dr-cr-rec-diff)]
+             [reconciliation (third dr-cr-rec-diff)]
+             [ext-minus-reconciliation (fourth dr-cr-rec-diff)])
         (send (vector-ref cells (ij-s row "new-dr")) set-value
               (format-exact new-dr 2))
         (send (vector-ref cells (ij-s row "new-cr")) set-value

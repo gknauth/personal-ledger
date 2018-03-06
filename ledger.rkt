@@ -52,16 +52,6 @@
            [ext-minus-book (- ext book)])
       (list book ext ext-minus-book)))
 
-(define (get-new-cr-new-dr-reconciliation-extdiff acct stmt-ymd8 ext)
-  (let* ([statement-balances (get-statement-balances acct)]
-         [stmt-bal (get-bal-for-date statement-balances stmt-ymd8)]
-         [reconciliation-items (find-reconciliation-ledger-items acct stmt-ymd8 statement-balances)]
-         [new-cr (sum-amounts-new-cr acct stmt-ymd8 reconciliation-items)]
-         [new-dr (sum-amounts-new-dr acct stmt-ymd8 reconciliation-items)]
-         [reconciliation (+ stmt-bal new-cr new-dr)]
-         [ext-minus-reconciliation (- ext reconciliation)])
-    (list new-cr new-dr reconciliation ext-minus-reconciliation)))
-
 (define (acct-book-and-ext-balances-on-date acct as-of)
   (let* ([xs (get-ledger-bal-items acct)]
          [ys (filter (λ (x)
@@ -83,20 +73,12 @@
 (define (sub-false-for-sql-null x)
   (if (sql-null? x) #f x))
 
+; vector -> statement-item
 (define (row-to-statement-item x)
   (statement-item (vector-ref x 1) (sql-date->ymd8 (vector-ref x 2)) (vector-ref x 3) (vector-ref x 4)))
 
+; vector -> ledger-item
 (define (row-to-ledger-item x)
-  (when (number? (vector-ref x 1))
-    (printf "~a ~a ~a ~a ~a ~a ~a\n"
-            (vector-ref x 1)
-            (vector-ref x 2)
-            (vector-ref x 3)
-            (vector-ref x 4)
-            (vector-ref x 5)
-            (vector-ref x 6)
-            (vector-ref x 7)
-    ))
   (ledger-item (sql-date->ymd8 (vector-ref x 1))
                (vector-ref x 2)
                (vector-ref x 3)
@@ -107,10 +89,9 @@
                (sub-false-for-sql-null (vector-ref x 8))
                (sub-false-for-sql-null (vector-ref x 9))
                (sub-false-for-sql-null (vector-ref x 10))))
-  
 
 ; string -> (list-of (list number number))
-(define (get-statement-balances acct)
+(define (db-get-statement-balances acct)
   (let* ([accttype (substring acct 0 1)]
          [acctname (substring acct 2)]
          [rows (query-rows
@@ -123,28 +104,35 @@
 
 ; string -> (list-of number)
 (define (get-statement-dates acct)
-  (map first (get-statement-balances acct)))
+  (map first (db-get-statement-balances acct)))
 
-; string number number -> (listof number number number number)l
-(define (calculate-reconciliation acct stmt-ymd8 stmt-bal)
-  (let* ([statement-balances (get-statement-balances acct)]
-         [reconciliation-items (find-reconciliation-ledger-items acct stmt-ymd8 statement-balances)]
+; string number number -> (listof number number number)
+(define (get-new-dr-new-cr-reconciliation acct stmt-ymd8)
+  (let* ([statement-balances (db-get-statement-balances acct)]
+         [stmt-bal (get-bal-for-date statement-balances stmt-ymd8)]
+         [reconciliation-items (db-get-reconciliation-ledger-items acct stmt-ymd8 statement-balances)]
          [new-dr (sum-amounts-new-dr acct stmt-ymd8 reconciliation-items)]
          [new-cr (sum-amounts-new-cr acct stmt-ymd8 reconciliation-items)]
-         [reconciliation (+ stmt-bal new-cr new-dr)]
-         [diff (- stmt-bal reconciliation)])
-    (list new-dr new-cr reconciliation diff)))
+         [reconciliation (+ stmt-bal new-dr new-cr)])
+    (list new-dr new-cr reconciliation)))
 
-; string -> (listof (list of number number number number))
+; string number number -> (listof number number number number)
+(define (get-new-dr-new-cr-reconciliation-diff acct stmt-ymd8 amt)
+  (let* ([dr-cr-rec (get-new-dr-new-cr-reconciliation acct stmt-ymd8)]
+         [new-dr (first dr-cr-rec)]
+         [new-cr (second dr-cr-rec)]
+         [reconciliation (third dr-cr-rec)]
+         [amt-minus-reconciliation (- amt reconciliation)])
+    (list new-dr new-cr reconciliation amt-minus-reconciliation)))
+
+; string -> (listof (list number number number number number))
 (define (get-reconciliations acct)
-  (map (λ (x)
-         (calculate-reconciliation acct (first x) (second x)))
-       (get-statement-balances acct)))
-
-
+  (map (λ (ymd8-bal)
+         (cons (first ymd8-bal) (get-new-dr-new-cr-reconciliation-diff acct (first ymd8-bal) (second ymd8-bal))))
+       (db-get-statement-balances acct)))
 
 ; num num -> (list-of statement-item)
-(define (get-statement-items start-year end-year)
+(define (db-get-statement-items start-year end-year)
   (let ([rows (query-rows
                con (string-append "select * from statements where date>='" (number->string start-year) "-01-01' and date<='" (number->string end-year) "-12-31' order by date"))])
     (map row-to-statement-item rows)))
@@ -156,7 +144,7 @@
                     x
                     (find-previous-statement-date ymd8 (rest statement-balances-going-back-in-time))))]))
 
-(define (find-reconciliation-ledger-items acct ymd8-end statement-balances)
+(define (db-get-reconciliation-ledger-items acct ymd8-end statement-balances)
   (let* ([ymd8-start (find-previous-statement-date ymd8-end (reverse statement-balances))]
          [rows (query-rows
                 con (string-append
@@ -196,7 +184,7 @@
   (reverse (helper acct (ledger-unseen-discrepancies acct) empty 0)))
 
 ; num num -> (list-of ledger-item)
-(define (get-ledger-items start-year end-year)
+(define (db-get-ledger-items start-year end-year)
   (let ([rows (query-rows
                con (string-append "select id,date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct from ledger where date>='" (number->string start-year) "-01-01' and date<='" (number->string end-year) "-12-31' order by date"))])
     (map row-to-ledger-item rows)))
@@ -343,8 +331,8 @@
      (* (sql-date-month d) 100)
      (* (sql-date-day d))))
 
-(define all-statement-items (get-statement-items start-year end-year))
-(define all-ledger-items (get-ledger-items start-year end-year))
+(define all-statement-items (db-get-statement-items start-year end-year))
+(define all-ledger-items (db-get-ledger-items start-year end-year))
 
 ; string -> (listof ledget-bal-item)
 (define (get-ledger-bal-items acct)
@@ -637,7 +625,7 @@
 ; total should be same as statement
 
 (define (pr-unreconciled acct ymd8)
-  (let* ([reconciliation-ledger-items (find-reconciliation-ledger-items acct ymd8 (get-statement-balances acct))])
+  (let* ([reconciliation-ledger-items (db-get-reconciliation-ledger-items acct ymd8 (db-get-statement-balances acct))])
     (printf "\n======== ~a TOTAL ===== Debits Not Reconciled to a Statement\n"
             (~a (format-float
                  (sum-amounts-new-dr acct ymd8 reconciliation-ledger-items) 2)
