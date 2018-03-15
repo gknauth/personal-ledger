@@ -338,9 +338,18 @@
            (- (ledger-amount-cr-unseen acct a-ledger-item) (ledger-amount-dr-unseen acct a-ledger-item))]
           [else 0])))
 
-; string -> (listof ledget-bal-item)
+; string -> (listof ledger-bal-item)
 (define (get-ledger-bal-items acct)
   (get-ledger-bal-items-from acct all-ledger-items 0 0))
+
+; find first ledger-bal-item where book and ext differ
+; string -> (or/c ledger-bal-item #f)
+(define (find-first-ledger-bal-item-book-ext-difference acct)
+  (let* ([items (get-ledger-bal-items acct)]
+         [nz-diffs (filter (λ (x) (not (zero? (ledger-bal-item-diff x)))) items)])
+    (if (> (length nz-diffs) 0)
+        (first nz-diffs)
+        #f)))
 
 (define (get-ledger-bal-items-from
          acct ledger-items starting-balance starting-balance-seen)
