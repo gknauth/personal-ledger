@@ -4,6 +4,7 @@
          (prefix-in s48: (lib "48.ss" "srfi"))
          db
          racket/date
+         plot
          format-numbers
          format-ymd
          (file "~/.ledger-dbaccess.rkt")
@@ -15,6 +16,8 @@
 (struct statement-item (acct date amount description) #:transparent)
 
 (struct ledger-bal-item (ledger-item balance balance-seen diff) #:transparent)
+
+(struct day-bal (date balance) #:transparent)
 
 (define track-item
   (class object%
@@ -137,10 +140,10 @@
 
 ; to return a number ymd8 must be one of the ymd8 values in the list
 ; (listof (list ymd8 exact)) ymd8 -> exact
-(define (get-bal-for-date date-bals ymd8)
+(define (get-stmt-bal-for-date date-bals ymd8)
   (cond [(null? date-bals) (error "balance unavailable for date" ymd8)]
         [(= (first (first date-bals)) ymd8) (second (first date-bals))]
-        [else (get-bal-for-date (rest date-bals) ymd8)]))
+        [else (get-stmt-bal-for-date (rest date-bals) ymd8)]))
 
 ; string -> (list-of number)
 (define (get-statement-dates acct)
@@ -149,7 +152,7 @@
 ; string number number -> (listof number number number)
 (define (get-new-dr-new-cr-reconciliation acct stmt-ymd8)
   (let* ([statement-balances (db-get-statement-balances acct)]
-         [stmt-bal (get-bal-for-date statement-balances stmt-ymd8)]
+         [stmt-bal (get-stmt-bal-for-date statement-balances stmt-ymd8)]
          [reconciliation-items (db-get-reconciliation-ledger-items acct stmt-ymd8 statement-balances)]
          [new-dr (sum-amounts-new-dr acct stmt-ymd8 reconciliation-items)]
          [new-cr (sum-amounts-new-cr acct stmt-ymd8 reconciliation-items)]
@@ -341,6 +344,52 @@
 ; string -> (listof ledger-bal-item)
 (define (get-ledger-bal-items acct)
   (get-ledger-bal-items-from acct all-ledger-items 0 0))
+
+(define (get-day-bals acct)
+  (map (λ (lbi)
+         (let ([li (ledger-bal-item-ledger-item lbi)])
+           (day-bal (ledger-item-date li) (ledger-bal-item-balance lbi))))
+       (get-ledger-bal-items acct)))
+
+(define (get-day-bals-filter acct filter-func)
+  (map (λ (lbi)
+         (let ([li (ledger-bal-item-ledger-item lbi)])
+           (day-bal (ledger-item-date li) (ledger-bal-item-balance lbi))))
+       (filter filter-func (get-ledger-bal-items acct))))
+
+(define (day-bals-from acct start-ymd8)
+  (define filter-func
+    (λ (lbi)
+      (>= (ledger-item-date (ledger-bal-item-ledger-item lbi)) start-ymd8)))
+  (get-day-bals-filter acct filter-func))
+
+(define (day-bals-range acct start-ymd8 end-ymd8)
+  (define filter-func
+    (λ (lbi)
+      (and (>= (ledger-item-date (ledger-bal-item-ledger-item lbi)) start-ymd8)
+           (<= (ledger-item-date (ledger-bal-item-ledger-item lbi)) end-ymd8))))
+  (get-day-bals-filter acct filter-func))
+
+(define (plot-day-bals-from acct start-ymd8)
+  (plot-day-bals acct (day-bals-from acct start-ymd8)))
+
+(define (plot-day-bals-range acct start-ymd8 end-ymd8)
+  (plot-day-bals acct (day-bals-range acct start-ymd8 end-ymd8)))
+
+(define (plot-day-bals acct bals)
+  (let* ([xs (map (λ (b) (date->seconds (ymd8->date (day-bal-date b)))) bals)]
+         [ys (map day-bal-balance bals)])
+    (parameterize ([plot-title acct]
+                   [plot-x-label "Date"]
+                   [plot-x-ticks (date-ticks)]
+                   [plot-y-label "Amount"])
+      (plot (lines (map vector xs ys) #:color (acct-color acct))))))
+
+(define (acct-color acct)
+  (let ([ch (string-ref acct 0)])
+    (cond [(eq? ch #\a) "Forest Green"]
+          [(eq? ch #\l) "red"]
+          [else "blue"])))
 
 ; find first ledger-bal-item where book and ext differ
 ; string -> (or/c ledger-bal-item #f)
