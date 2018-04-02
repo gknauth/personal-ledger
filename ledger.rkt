@@ -376,6 +376,9 @@
 (define (plot-day-bals-range acct start-ymd8 end-ymd8)
   (plot-day-bals acct (day-bals-range acct start-ymd8 end-ymd8)))
 
+(define (plot-day-bals-forward acct ndays)
+  (plot-day-bals-range acct (today->ymd8) (ymd8-plusdays->ymd8 (today->ymd8) ndays)))
+
 (define (plot-day-bals acct bals)
   (let* ([xs (map (λ (b) (date->seconds (ymd8->date (day-bal-date b)))) bals)]
          [ys (map day-bal-balance bals)])
