@@ -120,12 +120,12 @@
 ;;; End Database Calls
 
 (define (get-book-ext-diff acct ymd8)
-    (let* ([xs (get-ledger-bal-items acct)]
-           [bals (acct-book-and-ext-balances-on-date acct ymd8)]
-           [book (first bals)]
-           [ext (second bals)]
-           [ext-minus-book (- ext book)])
-      (list book ext ext-minus-book)))
+  (let* ([xs (get-ledger-bal-items acct)]
+         [bals (acct-book-and-ext-balances-on-date acct ymd8)]
+         [book (first bals)]
+         [ext (second bals)]
+         [ext-minus-book (- ext book)])
+    (list book ext ext-minus-book)))
 
 (define (acct-book-and-ext-balances-on-date acct as-of)
   (let* ([xs (get-ledger-bal-items acct)]
@@ -345,11 +345,23 @@
 (define (get-ledger-bal-items acct)
   (get-ledger-bal-items-from acct all-ledger-items 0 0))
 
+(define (closing-bal-each-day day-bals)
+  (define (dotted-pair-to-day-bal x) (day-bal (car x) (cdr x)))
+  (let* ([ht (for/hash ([i day-bals])
+              (values (day-bal-date i) (day-bal-balance i)))]
+         [dotted-pairs (sequence->list (in-hash-pairs ht))])
+    (map
+     dotted-pair-to-day-bal
+     (sort
+      dotted-pairs
+      (λ (a b) (< (car a) (car b)))))))
+
 (define (get-day-bals acct)
-  (map (λ (lbi)
-         (let ([li (ledger-bal-item-ledger-item lbi)])
-           (day-bal (ledger-item-date li) (ledger-bal-item-balance lbi))))
-       (get-ledger-bal-items acct)))
+  (closing-bal-each-day
+   (map (λ (lbi)
+          (let ([li (ledger-bal-item-ledger-item lbi)])
+            (day-bal (ledger-item-date li) (ledger-bal-item-balance lbi))))
+        (get-ledger-bal-items acct))))
 
 (define (get-day-bals-filter acct filter-func)
   (map (λ (lbi)
@@ -379,6 +391,9 @@
 (define (plot-day-bals-forward acct ndays)
   (plot-day-bals-range acct (today->ymd8) (ymd8-plusdays->ymd8 (today->ymd8) ndays)))
 
+(define (plot-accts-day-bals-forward accts ndays)
+  2)
+
 (define (plot-day-bals acct bals)
   (let* ([xs (map (λ (b) (date->seconds (ymd8->date (day-bal-date b)))) bals)]
          [ys (map day-bal-balance bals)])
@@ -387,6 +402,34 @@
                    [plot-x-ticks (date-ticks)]
                    [plot-y-label "Amount"])
       (plot (lines (map vector xs ys) #:color (acct-color acct))))))
+
+(define (foo-plot ndays)
+  (plot-accts-day-bals-range (list "a chk" "a pnc")
+                             (today->ymd8)
+                             (ymd8-plusdays->ymd8 (today->ymd8) ndays)))
+
+;(define (ff)
+;  (let ([accts (vector "a chk" "a pnc")])
+;    (for/vector ([i (in-range (vector-length accts))])
+;      (day-bals-range (first accts) start-ymd8 end-ymd8)]
+               
+
+(define (plot-accts-day-bals-range accts start-ymd8 end-ymd8)
+  (let* ([bals1 (day-bals-range (first accts) start-ymd8 end-ymd8)]
+         [bals2 (day-bals-range (second accts) start-ymd8 end-ymd8)]
+         [xs1 (map (λ (b) (date->seconds (ymd8->date (day-bal-date b)))) bals1)]
+         [ys1 (map day-bal-balance bals1)]
+         [xs2 (map (λ (b) (date->seconds (ymd8->date (day-bal-date b)))) bals2)]
+         [ys2 (map day-bal-balance bals2)]
+         )
+        (parameterize (
+                   [plot-x-label "Date"]
+                   [plot-x-ticks (date-ticks)]
+                   [plot-y-label "Amount"])
+    (plot (list
+          (lines (map vector xs1 ys1))
+          (lines (map vector xs2 ys2)))))))
+
 
 (define (acct-color acct)
   (let ([ch (string-ref acct 0)])

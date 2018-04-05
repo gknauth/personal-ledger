@@ -190,7 +190,7 @@
          [s-which-stmt-date (send (vector-ref cells (ij-s row "stmt")) get-value)])
     (send (vector-ref cells (ij-s row "stmt-bal")) set-value
           (if (= (string-length s-which-stmt-date) 8)
-              (let ([bal (get-bal-for-date acct-date-bals (string->number s-which-stmt-date))])
+              (let ([bal (get-stmt-bal-for-date acct-date-bals (string->number s-which-stmt-date))])
                 (if bal (format-exact bal 2) "n/a"))
               ""))
     (for/list ([colname (list "new-cr" "new-dr" "reconciliation" "more-seen" "should-match")])
@@ -205,8 +205,9 @@
 
 (module+ test
   (require rackunit)
-  (require "tests/test-amounts-new-dr-cr.rkt")
-  (require "tests/test-sum-ledger-items.rkt")
+  (require "tests/amounts-new-dr-cr.rkt")
+  (require "tests/sum-ledger-items.rkt")
+  (require "tests/closing-bal-each-day.rkt")
   )
 
 (module+ test
