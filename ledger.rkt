@@ -39,13 +39,16 @@
 (define jan01 (+ (* 10000 start-year) 101))
 (define dec31 (+ (* 10000 end-year) 1231))
 
-(define con (mysql-connect #:server db-host
-                           #:database db-schema
-                           #:user db-user
-                           #:password db-passwd
-                           #:port db-port))
+(define db-source
+  (mysql-data-source #:server db-host #:port db-port
+                     #:user db-user #:password db-passwd
+                     #:database db-schema))
 
-(define all-stmt-bals (make-hash))
+(define (connect!)
+  (dsn-connect db-source))
+
+(define the-db
+  (virtual-connection (connection-pool connect!)))
 
 ;;; Database Calls
 
@@ -54,7 +57,7 @@
   (let* ([accttype (substring acct 0 1)]
          [acctname (substring acct 2)]
          [rows (query-rows
-                con
+                the-db
                 (string-append "select date, amount from balances where acct_type = '" accttype
                                "' and acct_name = '" acctname
                                "' and isstmt is true order by date"))])
@@ -73,23 +76,23 @@
 ; num num -> (list-of statement-item)
 (define (db-get-statement-items start-year end-year)
   (let ([rows (query-rows
-               con (string-append "select * from statements where date>='" (number->string start-year) "-01-01' and date<='" (number->string end-year) "-12-31' order by date"))])
+               the-db (string-append "select * from statements where date>='" (number->string start-year) "-01-01' and date<='" (number->string end-year) "-12-31' order by date"))])
     (map row-to-statement-item rows)))
 
 (define (db-get-reconciliation-ledger-items acct ymd8-end statement-balances)
   (let* ([ymd8-start (find-previous-statement-date ymd8-end (reverse statement-balances))]
          [rows (query-rows
-                con (string-append
-                     "select"
-                     " id,date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct"
-                     " from ledger where"
-                     " (date >  '" (ymd8->ymd10 ymd8-start) "' and"
-                     "  date <= '" (ymd8->ymd10 ymd8-end)   "')"
-                     " and"
-                     " ((dr_acct = '" acct "' and (dr_seen is null or dr_seen = ':' )) "
-                     "   or "
-                     "  (cr_acct = '" acct "' and (cr_seen is null or cr_seen = ':' )) )"
-                     " order by date"))])
+                the-db (string-append
+                        "select"
+                        " id,date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct"
+                        " from ledger where"
+                        " (date >  '" (ymd8->ymd10 ymd8-start) "' and"
+                        "  date <= '" (ymd8->ymd10 ymd8-end)   "')"
+                        " and"
+                        " ((dr_acct = '" acct "' and (dr_seen is null or dr_seen = ':' )) "
+                        "   or "
+                        "  (cr_acct = '" acct "' and (cr_seen is null or cr_seen = ':' )) )"
+                        " order by date"))])
     (map row-to-ledger-item rows)))
 
 (define (sub-false-for-sql-null x)
@@ -111,7 +114,7 @@
 ; num num -> (list-of ledger-item)
 (define (db-get-ledger-items start-year end-year)
   (let ([rows (query-rows
-               con (string-append "select id,date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct from ledger where date>='" (number->string start-year) "-01-01' and date<='" (number->string end-year) "-12-31' order by date"))])
+               the-db (string-append "select id,date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct from ledger where date>='" (number->string start-year) "-01-01' and date<='" (number->string end-year) "-12-31' order by date"))])
     (map row-to-ledger-item rows)))
 
 (define all-statement-items (db-get-statement-items start-year end-year))
@@ -348,7 +351,7 @@
 (define (closing-bal-each-day day-bals)
   (define (dotted-pair-to-day-bal x) (day-bal (car x) (cdr x)))
   (let* ([ht (for/hash ([i day-bals])
-              (values (day-bal-date i) (day-bal-balance i)))]
+               (values (day-bal-date i) (day-bal-balance i)))]
          [dotted-pairs (sequence->list (in-hash-pairs ht))])
     (map
      dotted-pair-to-day-bal
@@ -364,10 +367,11 @@
         (get-ledger-bal-items acct))))
 
 (define (get-day-bals-filter acct filter-func)
-  (map (λ (lbi)
-         (let ([li (ledger-bal-item-ledger-item lbi)])
-           (day-bal (ledger-item-date li) (ledger-bal-item-balance lbi))))
-       (filter filter-func (get-ledger-bal-items acct))))
+  (closing-bal-each-day
+   (map (λ (lbi)
+          (let ([li (ledger-bal-item-ledger-item lbi)])
+            (day-bal (ledger-item-date li) (ledger-bal-item-balance lbi))))
+        (filter filter-func (get-ledger-bal-items acct)))))
 
 (define (day-bals-from acct start-ymd8)
   (define filter-func
@@ -422,13 +426,13 @@
          [xs2 (map (λ (b) (date->seconds (ymd8->date (day-bal-date b)))) bals2)]
          [ys2 (map day-bal-balance bals2)]
          )
-        (parameterize (
+    (parameterize (
                    [plot-x-label "Date"]
                    [plot-x-ticks (date-ticks)]
                    [plot-y-label "Amount"])
-    (plot (list
-          (lines (map vector xs1 ys1))
-          (lines (map vector xs2 ys2)))))))
+      (plot (list
+             (lines (map vector xs1 ys1))
+             (lines (map vector xs2 ys2)))))))
 
 
 (define (acct-color acct)
