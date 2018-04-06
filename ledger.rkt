@@ -395,9 +395,6 @@
 (define (plot-day-bals-forward acct ndays)
   (plot-day-bals-range acct (today->ymd8) (ymd8-plusdays->ymd8 (today->ymd8) ndays)))
 
-(define (plot-accts-day-bals-forward accts ndays)
-  2)
-
 (define (plot-day-bals acct bals)
   (let* ([xs (map (λ (b) (date->seconds (ymd8->date (day-bal-date b)))) bals)]
          [ys (map day-bal-balance bals)])
@@ -407,33 +404,24 @@
                    [plot-y-label "Amount"])
       (plot (lines (map vector xs ys) #:color (acct-color acct))))))
 
-(define (foo-plot ndays)
-  (plot-accts-day-bals-range (list "a chk" "a pnc")
+(define (plot-accts-day-bals-forward accts ndays)
+  (plot-accts-day-bals-range accts
                              (today->ymd8)
                              (ymd8-plusdays->ymd8 (today->ymd8) ndays)))
 
-;(define (ff)
-;  (let ([accts (vector "a chk" "a pnc")])
-;    (for/vector ([i (in-range (vector-length accts))])
-;      (day-bals-range (first accts) start-ymd8 end-ymd8)]
-               
-
 (define (plot-accts-day-bals-range accts start-ymd8 end-ymd8)
-  (let* ([bals1 (day-bals-range (first accts) start-ymd8 end-ymd8)]
-         [bals2 (day-bals-range (second accts) start-ymd8 end-ymd8)]
-         [xs1 (map (λ (b) (date->seconds (ymd8->date (day-bal-date b)))) bals1)]
-         [ys1 (map day-bal-balance bals1)]
-         [xs2 (map (λ (b) (date->seconds (ymd8->date (day-bal-date b)))) bals2)]
-         [ys2 (map day-bal-balance bals2)]
-         )
-    (parameterize (
-                   [plot-x-label "Date"]
+    (parameterize ([plot-x-label "Date"]
                    [plot-x-ticks (date-ticks)]
                    [plot-y-label "Amount"])
-      (plot (list
-             (lines (map vector xs1 ys1))
-             (lines (map vector xs2 ys2)))))))
+      (plot (map (λ (acct)
+                   (lines-acct-day-bals-range acct start-ymd8 end-ymd8))
+                 accts))))
 
+(define (lines-acct-day-bals-range acct start-ymd8 end-ymd8)
+  (let* ([bals (day-bals-range acct start-ymd8 end-ymd8)]
+         [xs (map (λ (b) (date->seconds (ymd8->date (day-bal-date b)))) bals)]
+         [ys (map day-bal-balance bals)])
+    (lines (map vector xs ys) #:color (acct-color acct))))
 
 (define (acct-color acct)
   (let ([ch (string-ref acct 0)])
