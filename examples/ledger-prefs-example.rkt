@@ -5,7 +5,7 @@
 (define start-year 2016)
 (define end-year 2017)
 
-(struct account (id color))
+(struct account (id color) #:transparent)
 
 (define a-chk (account "a chk" "Forest Green"))
 (define a-sav (account "a chk" "Turquoise"))
