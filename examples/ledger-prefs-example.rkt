@@ -8,7 +8,7 @@
 (struct account (id color) #:transparent)
 
 (define a-chk (account "a chk" "Forest Green"))
-(define a-sav (account "a chk" "Turquoise"))
+(define a-sav (account "a sav" "Turquoise"))
 
 (define l-amex (account "l amex" "blue"))
 (define l-visa (account "l visa" "red"))
