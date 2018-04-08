@@ -196,9 +196,12 @@
     (for/list ([colname (list "new-cr" "new-dr" "reconciliation" "more-seen" "should-match")])
       (send (vector-ref cells (ij-s row colname)) set-value ""))))
 
+(define (setup-gui)
+  (setup-cells)
+  (update-all-rows))
+
 (setup-stmt-bals)
-(setup-cells)
-(update-all-rows)
+(setup-gui)
 
 (define (show-dashboard)
   (send frame show #t))
