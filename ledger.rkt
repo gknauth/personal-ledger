@@ -416,6 +416,23 @@
                              (today->ymd8)
                              (ymd8-plusdays->ymd8 (today->ymd8) ndays)))
 
+(define (min-acct-day-bal-forward acctid ndays)
+  (define (helper min-seen answer xs)
+    (cond [(empty? xs) answer]
+          [(< (day-bal-balance (first xs)) min-seen)
+           (helper (day-bal-balance (first xs))
+                   (first xs)
+                   (rest xs))]
+          [else 
+           (helper min-seen
+                   answer
+                   (rest xs))]))
+  (helper +inf.0
+          #f
+          (day-bals-range acctid
+                          (today->ymd8)
+                          (ymd8-plusdays->ymd8 (today->ymd8) ndays))))
+          
 (define (plot-accounts-day-bals-range accounts start-ymd8 end-ymd8)
     (parameterize ([plot-x-label "Date"]
                    [plot-x-ticks (date-ticks)]
