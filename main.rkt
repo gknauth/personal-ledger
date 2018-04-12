@@ -15,7 +15,9 @@
 (define cols (vector "acct" "date" "book" "ext" "(- ext book)"
                      "stmt" "stmt-bal" "sync"
                      "new-dr" "new-cr" "reconciliation" "more-seen" "should-match"))
-(define rows (list->vector (cons empty accounts-to-show)))
+(define rows
+  (list->vector (cons empty (map (λ (x) (account-id x)) accounts-to-show))))
+
 (define cells (make-vector (* (vector-length cols) (vector-length rows))))
 
 ; get the column index for the name, -1 if no such column name
@@ -70,7 +72,9 @@
                            (callback t e))])
     (reset-width)))
 
-(define (setup-stmt-bals)
+(define all-stmt-bals (make-hash))
+
+(define (load-balances)
   (for ([row (in-range (vector-length rows))])
     (let ([acct (vector-ref rows row)])
       (when (not (null? acct))
@@ -200,7 +204,7 @@
   (setup-cells)
   (update-all-rows))
 
-(setup-stmt-bals)
+(load-balances)
 (setup-gui)
 
 (define (show-dashboard)

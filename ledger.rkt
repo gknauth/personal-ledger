@@ -121,8 +121,20 @@
                the-db (string-append "select id,date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct from ledger where date>='" (number->string start-year) "-01-01' and date<='" (number->string end-year) "-12-31' order by date"))])
     (map row-to-ledger-item rows)))
 
-(define all-statement-items (db-get-statement-items start-year end-year))
-(define all-ledger-items (db-get-ledger-items start-year end-year))
+(define all-statement-items empty)
+(define all-ledger-items empty)
+
+(define (set-all-statement-items!)
+  (set! all-statement-items (db-get-statement-items start-year end-year)))
+
+(define (set-all-ledger-items!)
+  (set! all-ledger-items (db-get-ledger-items start-year end-year)))
+
+(define (set-all-items!)
+  (set-all-statement-items!)
+  (set-all-ledger-items!))
+
+(set-all-items!)
 
 ;;; End Database Calls
 
@@ -389,6 +401,13 @@
       (and (>= (ledger-item-date (ledger-bal-item-ledger-item lbi)) start-ymd8)
            (<= (ledger-item-date (ledger-bal-item-ledger-item lbi)) end-ymd8))))
   (get-day-bals-filter acctid filter-func))
+
+(define (day-bals-on acctid ymd8)
+  (define filter-func
+    (λ (lbi)
+      (= (ledger-item-date (ledger-bal-item-ledger-item lbi)) ymd8)))
+  (get-day-bals-filter acctid filter-func))
+
 
 (define (plot-day-bals-from an-account start-ymd8)
   (plot-day-bals an-account (day-bals-from (account-id an-account) start-ymd8)))
