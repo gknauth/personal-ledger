@@ -93,9 +93,9 @@
                         " (date >  '" (ymd8->ymd10 ymd8-start) "' and"
                         "  date <= '" (ymd8->ymd10 ymd8-end)   "')"
                         " and"
-                        " ((dr_acctid = '" acctid "' and (dr_seen is null or dr_seen = ':' )) "
+                        " ((dr_acct = '" acctid "' and (dr_seen is null or dr_seen = ':' )) "
                         "   or "
-                        "  (cr_acctid = '" acctid "' and (cr_seen is null or cr_seen = ':' )) )"
+                        "  (cr_acct = '" acctid "' and (cr_seen is null or cr_seen = ':' )) )"
                         " order by date"))])
     (map row-to-ledger-item rows)))
 
@@ -130,11 +130,11 @@
 (define (set-all-ledger-items!)
   (set! all-ledger-items (db-get-ledger-items start-year end-year)))
 
-(define (set-all-items!)
+(define (refresh)
   (set-all-statement-items!)
   (set-all-ledger-items!))
 
-(set-all-items!)
+(refresh)
 
 ;;; End Database Calls
 
@@ -402,6 +402,11 @@
            (<= (ledger-item-date (ledger-bal-item-ledger-item lbi)) end-ymd8))))
   (get-day-bals-filter acctid filter-func))
 
+(define (day-bals-ons acctid ymd8s)
+  (map (λ (ymd8)
+         (day-bals-on acctid ymd8))
+       ymd8s))
+
 (define (day-bals-on acctid ymd8)
   (define filter-func
     (λ (lbi)
@@ -585,11 +590,11 @@
                                            false)
                                        (error "do-ledger-statement-tags-match: No? ~a ~a [~a] ~a"
                                               (ledger-item-date a-ledger-item)
-                                              (format-float (exact->inexact signed-amount 2))
+                                              (format-exact signed-amount 2)
                                               dtag ctag))
                                    (error "do-ledger-statement-tags-match: No? ~a ~a ~a [~a]"
                                           (ledger-item-date a-ledger-item)
-                                          (format-float (exact->inexact signed-amount 2))
+                                          (format-exact signed-amount 2)
                                           dtag ctag)))])]
                 [(symbol=? acct-amount-match 'acct-amount-dr-matches) (ledger-item-dr-seen a-ledger-item)]
                 [(symbol=? acct-amount-match 'acct-amount-cr-matches) (ledger-item-cr-seen a-ledger-item)]
@@ -614,8 +619,13 @@
 (define (pr-ledger-items acctid ledger-items)
   (for-each (λ (li) (pr-ledger-item acctid li)) ledger-items))
 
+;; TIP: great for finding which transactions on ledger cleared after statement date
 (define (pr-filtered-unmatched-ledger-items acctid ymd8-end)
   (pr-ledger-items acctid (filtered-unmatched-ledger-items acctid ymd8-end)))
+
+(define (sum-filtered-unmatched-ledger-items acctid ymd8-end)
+  (foldl + 0 (map (λ (li) (ledger-signed-amount acctid li))
+                  (filtered-unmatched-ledger-items acctid ymd8-end))))
 
 (define (filtered-unmatched-ledger-items acctid ymd8-end)
   (let* ([a (unmatched-ledger-items-to-date acctid ymd8-end)]
@@ -704,8 +714,7 @@
     (for-each (λ (x)
                 (let ([si (send x get-item)])
                   (printf "~a ~a ~a\n" (statement-item-date si)
-                          (~a (format-float
-                               (exact->inexact (statement-item-amount si)) 2)
+                          (~a (format-exact (statement-item-amount si) 2)
                               #:min-width 9 #:align 'right)
                           (statement-item-description si))))
               statement-unmatched)
@@ -718,8 +727,7 @@
 (define (pr-ledger-item acctid li)
   (printf "~a ~a ~a ~a / ~a\n"
           (ledger-item-date li)
-          (~a (format-float
-               (exact->inexact (ledger-signed-amount acctid li)) 2)
+          (~a (format-exact (ledger-signed-amount acctid li) 2)
               #:min-width 9 #:align 'right)
           (~a (if (> (ledger-signed-amount acctid li) 0)
                   (ledger-item-dr-seen li)
@@ -770,32 +778,28 @@
 (define (pr-unreconciled acctid ymd8)
   (let* ([reconciliation-ledger-items (db-get-reconciliation-ledger-items acctid ymd8 (db-get-statement-balances acctid))])
     (printf "\n======== ~a TOTAL ===== Debits Not Reconciled to a Statement\n"
-            (~a (format-float
-                 (sum-amounts-new-dr acctid ymd8 reconciliation-ledger-items) 2)
+            (~a (format-exact (sum-amounts-new-dr acctid ymd8 reconciliation-ledger-items) 2)
                 #:min-width 9 #:align 'right))
     (for-each (λ (x)
                 (when (string=? acctid (ledger-item-dr-acctid x))
                   (printf "~a ~a ~a (~a) ~a / ~a\n"
                           (ledger-item-date x)
-                          (~a
-                           (format-float (exact->inexact (ledger-item-amount x)) 2)
-                           #:min-width 9 #:align 'right)
+                          (~a (format-exact (ledger-item-amount x) 2)
+                              #:min-width 9 #:align 'right)
                           (if (ledger-item-dr-seen x) ":" " ")
                           (ledger-item-cr-acctid x)
                           (ledger-item-payee x)
                           (ledger-item-description x))))
               reconciliation-ledger-items)
     (printf "\n======== ~a TOTAL ===== Credits Not Reconciled to a Statement\n"
-            (~a (format-float
-                 (sum-amounts-new-cr acctid ymd8 reconciliation-ledger-items) 2)
+            (~a (format-exact (sum-amounts-new-cr acctid ymd8 reconciliation-ledger-items) 2)
                 #:min-width 9 #:align 'right))
     (for-each (λ (x)
                 (when (string=? acctid (ledger-item-cr-acctid x))
                   (printf "~a ~a ~a (~a) ~a / ~a\n"
                           (ledger-item-date x)
-                          (~a
-                           (format-float (exact->inexact (- (ledger-item-amount x))) 2)
-                           #:min-width 9 #:align 'right)
+                          (~a (format-exact (- (ledger-item-amount x)) 2)
+                              #:min-width 9 #:align 'right)
                           (if (ledger-item-cr-seen x) ":" " ")
                           (ledger-item-dr-acctid x)
                           (ledger-item-payee x)

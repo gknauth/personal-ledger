@@ -200,15 +200,26 @@
     (for/list ([colname (list "new-cr" "new-dr" "reconciliation" "more-seen" "should-match")])
       (send (vector-ref cells (ij-s row colname)) set-value ""))))
 
-(define (setup-gui)
-  (setup-cells)
-  (update-all-rows))
+(define setup-gui-already-called #f)
 
-(load-balances)
-(setup-gui)
+(define (setup-gui)
+  (if setup-gui-already-called
+      (error "setup-gui was already called")
+      (begin
+        (load-balances)
+        (setup-cells)
+        (update-all-rows))))
+
+(define (refresh-gui)
+  (set-all-items!)
+  (load-balances)
+  (update-all-rows))
 
 (define (show-dashboard)
   (send frame show #t))
+
+(setup-gui)
+(show-dashboard)
 
 (module+ test
   (require rackunit)
