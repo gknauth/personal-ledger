@@ -12,6 +12,8 @@
 
 (provide (all-defined-out))
 
+(plot-new-window? #t)
+
 (define accounts-ht
   (for/hash ([a all-accounts])
     (values (account-id a) a)))
@@ -400,7 +402,11 @@
     (λ (lbi)
       (and (>= (ledger-item-date (ledger-bal-item-ledger-item lbi)) start-ymd8)
            (<= (ledger-item-date (ledger-bal-item-ledger-item lbi)) end-ymd8))))
-  (get-day-bals-filter acctid filter-func))
+  (let ([bals (get-day-bals-filter acctid filter-func)])
+    (if (and (not (empty? bals))
+             (> (day-bal-date (first bals)) start-ymd8))
+        (append (day-bals-on acctid start-ymd8) bals)
+        bals)))
 
 (define (day-bals-ons acctid ymd8s)
   (map (λ (ymd8)
@@ -411,7 +417,10 @@
   (define filter-func
     (λ (lbi)
       (= (ledger-item-date (ledger-bal-item-ledger-item lbi)) ymd8)))
-  (get-day-bals-filter acctid filter-func))
+  (let ([bals (get-day-bals-filter acctid filter-func)])
+    (if (empty? bals)
+        (list (first (reverse (day-bals-range acctid 20180101 ymd8))))
+        bals)))
 
 
 (define (plot-day-bals-from an-account start-ymd8)

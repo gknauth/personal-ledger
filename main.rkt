@@ -8,47 +8,87 @@
          "ledger.rkt"
          (file "~/.ledger-prefs.rkt"))
 
-(define frame
+(define summary-frame
   (instantiate frame%
-    ("Financial Dashboard")))
+    ("Summary Information")))
 
-(define cols (vector "acct" "date" "book" "ext" "(- ext book)"
-                     "stmt" "stmt-bal" "sync"
-                     "new-dr" "new-cr" "reconciliation" "more-seen" "should-match"))
-(define rows
+(define detail-frame
+  (instantiate frame%
+    ("Detail Information")))
+
+(define summary-cols (vector "acct" "date" "book" "ext" "(- ext book)"
+                             "stmt" "stmt-bal" "sync"
+                             "new-dr" "new-cr" "reconciliation" "more-seen" "should-match"))
+(define summary-rows
   (list->vector (cons empty (map (λ (x) (account-id x)) accounts-to-show))))
 
-(define cells (make-vector (* (vector-length cols) (vector-length rows))))
+(define summary-cells (make-vector (* (vector-length summary-cols) (vector-length summary-rows))))
 
+(define detail-rows (vector "acct" "date" "book" "ext" "(- ext book)"
+                            "stmt" "stmt-bal" "sync"
+                            "new-dr" "new-cr" "reconciliation" "more-seen" "should-match"))
+
+(define detail-cols (make-vector 2))
+
+(define detail-cells (make-vector (* (vector-length detail-cols) (vector-length detail-rows))))
+  
 ; get the column index for the name, -1 if no such column name
 ; string -> integer
-(define (col-name-index name)
+(define (summary-col-name-index name)
   (define (helper name lst i)
     (cond [(empty? lst) -1]
           [(if (string=? name (first lst))
                i
                (helper name (rest lst) (+ 1 i)))]))
-  (helper name (vector->list cols) 0))
+  (helper name (vector->list summary-cols) 0))
 
-(define table-panel
+; get the row index for the name, -1 if no such column name
+; string -> integer
+(define (detail-row-name-index name)
+  (define (helper name lst i)
+    (cond [(empty? lst) -1]
+          [(if (string=? name (first lst))
+               i
+               (helper name (rest lst) (+ 1 i)))]))
+  (helper name (vector->list detail-rows) 0))
+
+(define summary-table-panel
   (instantiate table-panel%
-    (frame)
+    (summary-frame)
     ;(style '(border))
-    (dimensions `(,(+ 1 (vector-length rows)) ,(vector-length cols)))
+    (dimensions `(,(+ 1 (vector-length summary-rows)) ,(vector-length summary-cols)))
+    (column-stretchability #t)
+    (row-stretchability #f)))
+
+(define detail-table-panel
+  (instantiate table-panel%
+    (detail-frame)
+    ;(style '(border))
+    (dimensions `(,(+ 1 (vector-length detail-rows)) ,(vector-length detail-cols)))
     (column-stretchability #t)
     (row-stretchability #f)))
 
 ; get the 1D vector index given 2D row col
 ; integer integer -> integer
-(define (ij row col)
-  (+ (* row (vector-length cols)) col))
+(define (summary-ij row col)
+  (+ (* row (vector-length summary-cols)) col))
+
+(define (detail-ij row col)
+  (+ (* row (vector-length detail-cols)) col))
 
 ; integer string -> integer
-(define (ij-s row col-name)
-  (let ([col (col-name-index col-name)])
+(define (summary-ij-s row col-name)
+  (let ([col (summary-col-name-index col-name)])
     (if (= -1 col)
         (error "col-name ~a is invalid" col-name)
-        (ij row col))))
+        (summary-ij row col))))
+
+; integer string -> integer
+(define (detail-ij-s row-name col)
+  (let ([row (detail-row-name-index row-name)])
+    (if (= -1 row)
+        (error "row-name ~a is invalid" row-name)
+        (detail-ij row col))))
 
 (define text-field-right-align%
   (class text-field%
@@ -75,130 +115,310 @@
 (define all-stmt-bals (make-hash))
 
 (define (load-balances)
-  (for ([row (in-range (vector-length rows))])
-    (let ([acct (vector-ref rows row)])
+  (for ([row (in-range (vector-length summary-rows))])
+    (let ([acct (vector-ref summary-rows row)])
       (when (not (null? acct))
         (let ([bals (db-get-statement-balances acct)])
           (hash-set! all-stmt-bals acct bals))))))
 
 (define std-col-width 60)
 
-(define (setup-cells)
-  (for ([row (in-range (vector-length rows))])
-    (let ([acct (vector-ref rows row)])
-      (for ([col (in-range (vector-length cols))])
-        (vector-set! cells (ij row col) 
+(define (setup-summary-cells)
+  (for ([row (in-range (vector-length summary-rows))])
+    (let ([acct (vector-ref summary-rows row)])
+      (for ([col (in-range (vector-length summary-cols))])
+        (vector-set! summary-cells (summary-ij row col) 
                      (if (= 0 row)
                          (new message%
-                              (parent table-panel)
-                              (label (vector-ref cols col))
+                              (parent summary-table-panel)
+                              (label (vector-ref summary-cols col))
                               (min-width std-col-width))
-                         (cond [(= col (col-name-index "stmt")) (new combo-field%
-                                                                     (parent table-panel)
-                                                                     (label "")
-                                                                     (choices (reverse (map (λ (x) (number->string (first x)))
-                                                                                            (hash-ref all-stmt-bals acct))))
-                                                                     (callback (λ (t e)
-                                                                                 (stmt-date-changed t e row)))
-                                                                     (min-width std-col-width))]
-                               [(= col (col-name-index "sync")) (new button%
-                                                                     (label "◀")
-                                                                     (parent table-panel)
-                                                                     (min-width 50)
-                                                                     (callback (λ (t e)
-                                                                                 (sync-button-pressed t e row))))]
-                               [else (new text-field%
-                                          (parent table-panel)
-                                          (label "")
-                                          (init-value (cond [(= 0 col) acct]
-                                                            [(= 1 col) (number->string (today->ymd8))]
-                                                            [else ""]))
-                                          (enabled (= col (col-name-index "date")))
-                                          (callback (cond [(= col (col-name-index "date"))
-                                                           (λ (t e)
-                                                             (date-changed t e row))]
-                                                          [else (λ (t e ) (void))]))
-                                          (min-width 120))])
+                         (cond [(= col (summary-col-name-index "stmt"))
+                                (new combo-field%
+                                     (parent summary-table-panel)
+                                     (label "")
+                                     (choices (get-stmt-dates acct))
+                                     (callback (λ (t e)
+                                                 (summary-stmt-date-changed t e row)))
+                                     (min-width std-col-width))]
+                               [(= col (summary-col-name-index "sync"))
+                                (new button%
+                                     (label "◀")
+                                     (parent summary-table-panel)
+                                     (min-width 50)
+                                     (callback (λ (t e)
+                                                 (summary-sync-button-pressed t e row))))]
+                               [else
+                                (new text-field%
+                                     (parent summary-table-panel)
+                                     (label "")
+                                     (init-value (cond [(= 0 col) acct]
+                                                       [(= 1 col) (number->string (today->ymd8))]
+                                                       [else ""]))
+                                     (enabled (= col (summary-col-name-index "date")))
+                                     (callback (cond [(= col (summary-col-name-index "date"))
+                                                      (λ (t e)
+                                                        (summary-date-changed t e row))]
+                                                     [else (λ (t e ) (void))]))
+                                     (min-width 120))])
                          ))))))
 
-(define (update-all-rows)
-  (for ([row (in-range (vector-length rows))])
-    (when (> row 0)
-      (let ([t (vector-ref cells (ij-s row "date"))])
-        (update-row t row)))))
+(define (get-detail-selected-acct)
+  (let* ([ij (detail-ij-s "acct" 0)]
+         [cell (vector-ref detail-cells ij)])
+    (send cell get-string (send cell get-selection))))
 
-(define (update-row t row)
+(define (setup-detail-cells)
+  (for ([row (in-range (vector-length detail-rows))])
+    (for ([col (in-range (vector-length detail-cols))])
+      (cond [(= 0 col)
+             (vector-set! detail-cells (detail-ij row col)
+                          (cond [(= row (detail-row-name-index "acct"))
+                                 (new choice%
+                                      (parent detail-table-panel)
+                                      (label (vector-ref detail-rows 0))
+                                      (choices (map (λ (x) (account-id x)) all-accounts))
+                                      (callback (λ (t e) (detail-acct-changed t e))))]
+                                [(= row (detail-row-name-index "date"))
+                                 (new text-field%
+                                      (parent detail-table-panel)
+                                      (label "date")
+                                      (enabled #t)
+                                      (callback (λ (t e) (detail-date-changed t e)))
+                                      (init-value (cond [(= row (detail-row-name-index "date"))
+                                                         (number->string (today->ymd8))]
+                                                        [else ""])))]
+                                [(= row (detail-row-name-index "stmt"))
+                                 (new choice%
+                                      (parent detail-table-panel)
+                                      (label "stmt")
+                                      (choices (get-stmt-dates (get-detail-selected-acct)))
+                                      (callback (λ (t e)
+                                                  (detail-stmt-date-changed t e)))
+                                      (min-width std-col-width))]
+                                [(= row (detail-row-name-index "sync"))
+                                 (new button%
+                                      (label "sync")
+                                      (parent detail-table-panel)
+                                      (callback (λ (t e)
+                                                  (detail-sync-button-pressed t e))))]
+                                [else
+                                 (new text-field%
+                                      (parent detail-table-panel)
+                                      (label (vector-ref detail-rows row))
+                                      (init-value ""))]))]
+            [(= 1 col)
+             (vector-set! detail-cells (detail-ij row col)
+                          (cond [(= row (detail-row-name-index "date"))
+                                 (new button%
+                                      (parent detail-table-panel)
+                                      (label "plot")
+                                      (callback (λ (t e)
+                                                  (plot-day-bals-forward
+                                                   (hash-ref accounts-ht (get-detail-selected-acct))
+                                                   60))))]
+                                [(= row (detail-row-name-index "more-seen"))
+                                 (new button%
+                                      (parent detail-table-panel)
+                                      (label "show"))]
+                                [else (new message%
+                                           (parent detail-table-panel)
+                                           (label ""))]))]
+            [else (error "setup-detail-cells should not get here")]))))
+
+(define (update-all-summary-rows)
+  (for ([row (in-range (vector-length summary-rows))])
+    (when (> row 0)
+      (let ([t (vector-ref summary-cells (summary-ij-s row "date"))])
+        (update-summary-row t row)))))
+
+(define (update-detail)
+  (let* ([col 0]
+         [t (vector-ref detail-cells (detail-ij-s "date" col))]
+         [s-as-of (send t get-value)])
+    (when (> (string-length s-as-of) 0)
+      (update-detail-book-ext-diff (string->number s-as-of))
+      (update-detail-stmt-choices)
+      (update-detail-stmt-bal)
+      )))
+
+(define (update-detail-stmt-choices)
+  (let ([choice-o (detail-choice-o-named "stmt")])
+    (send choice-o clear)
+    (for-each (λ (x)
+                (send choice-o append x))
+              (get-stmt-dates (get-detail-selected-acct)))))
+
+(define (detail-cell-named name)
+  (vector-ref detail-cells (detail-row-name-index name)))
+
+(define (update-detail-stmt-bal)
+  (let ([acct (get-detail-selected-acct)]
+        [s-which-stmt-date (detail-value-choice-o-named "stmt")])
+    (send (detail-cell-named "stmt-bal") set-value (acct-bal-str acct s-which-stmt-date))))
+
+(define (acct-bal-str acct s-stmt-date)
+  (let ([acct-date-bals (hash-ref all-stmt-bals acct)])
+    (if (= (string-length s-stmt-date) 8)
+        (let ([bal (get-stmt-bal-for-date acct-date-bals (string->number s-stmt-date))])
+          (if bal (format-exact bal 2) "n/a"))
+        "")))
+
+(define (detail-choice-o-named name)
+  (vector-ref detail-cells (detail-ij (detail-row-name-index name) 0)))
+
+(define (detail-value-choice-o-named name)
+  (let* ([choice-o (detail-choice-o-named name)]
+         [i (send choice-o get-selection)])
+    (if i (send choice-o get-string i) "")))
+
+(define (update-summary-row t row)
   (let ([s-as-of (send t get-value)])
     (when (> (string-length s-as-of) 0)
-      (update-book-ext-diff row (string->number s-as-of)))))
+      (update-summary-book-ext-diff row (string->number s-as-of)))))
 
-(define (update-book-ext-diff row ymd8)
-  (let* ([acct (send (vector-ref cells (ij-s row "acct")) get-value)]
+(define (update-summary-book-ext-diff row ymd8)
+  (let* ([acct (send (vector-ref summary-cells (summary-ij-s row "acct")) get-value)]
          [book-ext-diff (get-book-ext-diff acct ymd8)]
          [book (first book-ext-diff)]
          [ext (second book-ext-diff)]
          [ext-minus-book (third book-ext-diff)])
-    (send (vector-ref cells (ij-s row "book")) set-value (format-exact book 2))
-    (send (vector-ref cells (ij-s row "ext")) set-value (format-exact ext 2))
-    (send (vector-ref cells (ij-s row "(- ext book)"))
-            set-value (format-exact ext-minus-book 2))))
+    (send (vector-ref summary-cells (summary-ij-s row "book")) set-value (format-exact book 2))
+    (send (vector-ref summary-cells (summary-ij-s row "ext")) set-value (format-exact ext 2))
+    (send (vector-ref summary-cells (summary-ij-s row "(- ext book)"))
+          set-value (format-exact ext-minus-book 2))))
 
-(define (date-changed t e row)
+(define (update-detail-book-ext-diff ymd8)
+  (let* ([col 0]
+         [acct (get-detail-selected-acct)]
+         [book-ext-diff (get-book-ext-diff acct ymd8)]
+         [book (first book-ext-diff)]
+         [ext (second book-ext-diff)]
+         [ext-minus-book (third book-ext-diff)])
+    (send (vector-ref detail-cells (detail-ij-s "book" col)) set-value (format-exact book 2))
+    (send (vector-ref detail-cells (detail-ij-s "ext" col)) set-value (format-exact ext 2))
+    (send (vector-ref detail-cells (detail-ij-s "(- ext book)" col))
+          set-value (format-exact ext-minus-book 2))))
+
+(define (summary-date-changed t e row)
   (when (eq? (send e get-event-type) 'text-field-enter)
-    (update-row t row)))
+    (update-summary-row t row)))
 
-(define (sync-button-pressed t e row)
-  (update-date-book-ext-diff row)
-  (update-seen-also row))
+(define (detail-date-changed t e)
+  (when (eq? (send e get-event-type) 'text-field-enter)
+    (update-detail)))
 
-(define (update-seen-also row)
-  (let* ([acct (vector-ref rows row)]
-         [s-which-stmt-date (send (vector-ref cells (ij-s row "stmt")) get-value)]
+(define (summary-sync-button-pressed t e row)
+  (summary-update-date-book-ext-diff row)
+  (summary-update-seen-also row))
+
+(define (detail-sync-button-pressed t e)
+  (detail-update-date-book-ext-diff)
+  (detail-update-seen-also))
+
+(define (get-stmt-dates acct)
+  (reverse (map (λ (x) (number->string (first x)))
+                (hash-ref all-stmt-bals acct))))
+
+(define (summary-update-seen-also row)
+  (let* ([acct (vector-ref summary-rows row)]
+         [s-which-stmt-date (send (vector-ref summary-cells (summary-ij-s row "stmt")) get-value)]
          [stmt-ymd8 (string->number s-which-stmt-date)]
-         [s-stmt-bal (send (vector-ref cells (ij-s row "stmt-bal")) get-value)])
+         [s-stmt-bal (send (vector-ref summary-cells (summary-ij-s row "stmt-bal")) get-value)])
     (when (and (= (string-length s-which-stmt-date) 8)
                (> (string-length s-stmt-bal) 0))
-      (let* ([ext (string->number (send (vector-ref cells (ij-s row "ext")) get-value))]
+      (let* ([ext (string->number (send (vector-ref summary-cells (summary-ij-s row "ext")) get-value))]
              [stmt-bal (string->number (if (string=? s-stmt-bal "n/a") "0" s-stmt-bal))]
              [dr-cr-rec-diff (get-new-dr-new-cr-reconciliation-diff acct stmt-ymd8 ext)]
              [new-dr (first dr-cr-rec-diff)]
              [new-cr (second dr-cr-rec-diff)]
              [reconciliation (third dr-cr-rec-diff)]
              [ext-minus-reconciliation (fourth dr-cr-rec-diff)])
-        (send (vector-ref cells (ij-s row "new-dr")) set-value
+        (send (vector-ref summary-cells (summary-ij-s row "new-dr")) set-value
               (format-exact new-dr 2))
-        (send (vector-ref cells (ij-s row "new-cr")) set-value
+        (send (vector-ref summary-cells (summary-ij-s row "new-cr")) set-value
               (format-exact new-cr 2))
         (when (not (string=? s-stmt-bal "n/a"))
-          (send (vector-ref cells (ij-s row "reconciliation")) set-value
+          (send (vector-ref summary-cells (summary-ij-s row "reconciliation")) set-value
                 (format-exact reconciliation 2))
           (let ([more-seen (sum-ledger-items acct (filtered-unmatched-ledger-items acct stmt-ymd8))])
-            (send (vector-ref cells (ij-s row "more-seen")) set-value
+            (send (vector-ref summary-cells (summary-ij-s row "more-seen")) set-value
                   (format-exact more-seen 2))
-            (send (vector-ref cells (ij-s row "should-match")) set-value
+            (send (vector-ref summary-cells (summary-ij-s row "should-match")) set-value
                   (format-exact (+ reconciliation more-seen) 2))))))))
 
-(define (update-date-book-ext-diff row)
-  (let* ([acct (vector-ref rows row)]
-         [s-which-stmt-date (send (vector-ref cells (ij-s row "stmt")) get-value)])
+(define (detail-update-seen-also)
+  (let* ([col 0]
+         [acct (get-detail-selected-acct)]
+         [s-which-stmt-date (detail-value-choice-o-named "stmt")]
+         [stmt-ymd8 (string->number s-which-stmt-date)]
+         [s-stmt-bal (send (vector-ref detail-cells (detail-ij-s "stmt-bal" col)) get-value)])
+    (when (and (= (string-length s-which-stmt-date) 8)
+               (> (string-length s-stmt-bal) 0))
+      (let* ([ext (string->number (send (vector-ref detail-cells (detail-ij-s "ext" col)) get-value))]
+             [stmt-bal (string->number (if (string=? s-stmt-bal "n/a") "0" s-stmt-bal))]
+             [dr-cr-rec-diff (get-new-dr-new-cr-reconciliation-diff acct stmt-ymd8 ext)]
+             [new-dr (first dr-cr-rec-diff)]
+             [new-cr (second dr-cr-rec-diff)]
+             [reconciliation (third dr-cr-rec-diff)]
+             [ext-minus-reconciliation (fourth dr-cr-rec-diff)])
+        (send (vector-ref detail-cells (detail-ij-s "new-dr" col)) set-value
+              (format-exact new-dr 2))
+        (send (vector-ref detail-cells (detail-ij-s "new-cr" col)) set-value
+              (format-exact new-cr 2))
+        (when (not (or (string=? s-stmt-bal "n/a") (string=? s-stmt-bal "")))
+          (send (vector-ref detail-cells (detail-ij-s "reconciliation" col)) set-value
+                (format-exact reconciliation 2))
+          (let ([more-seen (sum-ledger-items acct (filtered-unmatched-ledger-items acct stmt-ymd8))])
+            (send (vector-ref detail-cells (detail-ij-s "more-seen" col)) set-value
+                  (format-exact more-seen 2))
+            (send (vector-ref detail-cells (detail-ij-s "should-match" col)) set-value
+                  (format-exact (+ reconciliation more-seen) 2))))))))
+
+(define (summary-update-date-book-ext-diff row)
+  (let* ([acct (vector-ref summary-rows row)]
+         [s-which-stmt-date (send (vector-ref summary-cells (summary-ij-s row "stmt")) get-value)])
     (when (= (string-length s-which-stmt-date) 8)
-      (send (vector-ref cells (ij-s row "date")) set-value s-which-stmt-date)
-      (update-book-ext-diff row (string->number s-which-stmt-date)))))
+      (send (vector-ref summary-cells (summary-ij-s row "date")) set-value s-which-stmt-date)
+      (update-summary-book-ext-diff row (string->number s-which-stmt-date)))))
 
-(define (stmt-date-changed t e row)
-  (update-stmt-bal t row))
+(define (detail-update-date-book-ext-diff)
+  (let* ([col 0]
+         [acct (get-detail-selected-acct)]
+         [s-which-stmt-date (detail-value-choice-o-named "stmt")])
+    (when (= (string-length s-which-stmt-date) 8)
+      (send (vector-ref detail-cells (detail-ij-s "date" col)) set-value s-which-stmt-date)
+      (update-detail-book-ext-diff (string->number s-which-stmt-date)))))
 
-(define (update-stmt-bal t row)
-  (let* ([acct (vector-ref rows row)]
+(define (summary-stmt-date-changed t e row)
+  (summary-update-stmt-bal t row))
+
+(define (detail-stmt-date-changed t e)
+  (detail-update-stmt-bal t))
+
+(define (detail-acct-changed t e)
+  (update-detail))
+
+(define (summary-update-stmt-bal t row)
+  (let* ([acct (vector-ref summary-rows row)]
+         [s-which-stmt-date (send (vector-ref summary-cells (summary-ij-s row "stmt")) get-value)])
+    (send (vector-ref summary-cells (summary-ij-s row "stmt-bal")) set-value
+          (acct-bal-str acct s-which-stmt-date))
+    (for/list ([colname (list "new-cr" "new-dr" "reconciliation" "more-seen" "should-match")])
+      (send (vector-ref summary-cells (summary-ij-s row colname)) set-value ""))))
+
+(define (detail-update-stmt-bal t)
+  (let* ([col 0]
+         [acct (get-detail-selected-acct)]
          [acct-date-bals (hash-ref all-stmt-bals acct)]
-         [s-which-stmt-date (send (vector-ref cells (ij-s row "stmt")) get-value)])
-    (send (vector-ref cells (ij-s row "stmt-bal")) set-value
+         [s-which-stmt-date (detail-value-choice-o-named "stmt")])
+    (send (vector-ref detail-cells (detail-ij-s "stmt-bal" col)) set-value
           (if (= (string-length s-which-stmt-date) 8)
               (let ([bal (get-stmt-bal-for-date acct-date-bals (string->number s-which-stmt-date))])
                 (if bal (format-exact bal 2) "n/a"))
               ""))
-    (for/list ([colname (list "new-cr" "new-dr" "reconciliation" "more-seen" "should-match")])
-      (send (vector-ref cells (ij-s row colname)) set-value ""))))
+    (for/list ([rowname (list "new-cr" "new-dr" "reconciliation" "more-seen" "should-match")])
+      (send (vector-ref detail-cells (detail-ij-s rowname col)) set-value ""))))
 
 (define setup-gui-already-called #f)
 
@@ -207,19 +427,27 @@
       (error "setup-gui was already called")
       (begin
         (load-balances)
-        (setup-cells)
-        (update-all-rows))))
+        (setup-summary-cells)
+        (setup-detail-cells)
+        (update-all-summary-rows)
+        (update-detail))))
 
 (define (refresh-gui)
-  (set-all-items!)
+  (refresh)
   (load-balances)
-  (update-all-rows))
+  (update-all-summary-rows)
+  (update-detail))
 
-(define (show-dashboard)
-  (send frame show #t))
+(define (show-gui)
+  (send summary-frame show #t)
+  (send detail-frame show #t))
+
+(define (hide-gui)
+  (send summary-frame show #f)
+  (send detail-frame show #f))
 
 (setup-gui)
-(show-dashboard)
+(show-gui)
 
 (module+ test
   (require rackunit)
@@ -259,3 +487,4 @@
 
 
 
+  
