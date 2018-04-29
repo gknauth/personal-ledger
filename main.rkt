@@ -18,7 +18,7 @@
 
 (define summary-cols (vector "acct" "date" "book" "ext" "(- ext book)"
                              "stmt" "stmt-bal" "sync"
-                             "new-dr" "new-cr" "reconciliation" "more-seen" "should-match"))
+                             "new-dr" "new-cr" "reconciliation" "unmatched" "should-match"))
 (define summary-rows
   (list->vector (cons empty (map (λ (x) (account-id x)) accounts-to-show))))
 
@@ -26,7 +26,7 @@
 
 (define detail-rows (vector "acct" "date" "book" "ext" "(- ext book)"
                             "stmt" "stmt-bal" "sync"
-                            "new-dr" "new-cr" "reconciliation" "more-seen" "should-match"))
+                            "new-dr" "new-cr" "reconciliation" "unmatched" "should-match"))
 
 (define detail-cols (make-vector 2))
 
@@ -217,7 +217,7 @@
                                                   (plot-day-bals-forward
                                                    (hash-ref accounts-ht (get-detail-selected-acct))
                                                    60))))]
-                                [(= row (detail-row-name-index "more-seen"))
+                                [(= row (detail-row-name-index "unmatched"))
                                  (new button%
                                       (parent detail-table-panel)
                                       (label "show"))]
@@ -341,11 +341,11 @@
         (when (not (string=? s-stmt-bal "n/a"))
           (send (vector-ref summary-cells (summary-ij-s row "reconciliation")) set-value
                 (format-exact reconciliation 2))
-          (let ([more-seen (sum-ledger-items acct (filtered-unmatched-ledger-items acct stmt-ymd8))])
-            (send (vector-ref summary-cells (summary-ij-s row "more-seen")) set-value
-                  (format-exact more-seen 2))
+          (let ([unmatched (sum-ledger-items acct (filtered-unmatched-ledger-items acct stmt-ymd8))])
+            (send (vector-ref summary-cells (summary-ij-s row "unmatched")) set-value
+                  (format-exact unmatched 2))
             (send (vector-ref summary-cells (summary-ij-s row "should-match")) set-value
-                  (format-exact (+ reconciliation more-seen) 2))))))))
+                  (format-exact (+ reconciliation unmatched) 2))))))))
 
 (define (detail-update-seen-also)
   (let* ([col 0]
@@ -369,11 +369,11 @@
         (when (not (or (string=? s-stmt-bal "n/a") (string=? s-stmt-bal "")))
           (send (vector-ref detail-cells (detail-ij-s "reconciliation" col)) set-value
                 (format-exact reconciliation 2))
-          (let ([more-seen (sum-ledger-items acct (filtered-unmatched-ledger-items acct stmt-ymd8))])
-            (send (vector-ref detail-cells (detail-ij-s "more-seen" col)) set-value
-                  (format-exact more-seen 2))
+          (let ([unmatched (sum-ledger-items acct (filtered-unmatched-ledger-items acct stmt-ymd8))])
+            (send (vector-ref detail-cells (detail-ij-s "unmatched" col)) set-value
+                  (format-exact unmatched 2))
             (send (vector-ref detail-cells (detail-ij-s "should-match" col)) set-value
-                  (format-exact (+ reconciliation more-seen) 2))))))))
+                  (format-exact (+ reconciliation unmatched) 2))))))))
 
 (define (summary-update-date-book-ext-diff row)
   (let* ([acct (vector-ref summary-rows row)]
@@ -404,7 +404,7 @@
          [s-which-stmt-date (send (vector-ref summary-cells (summary-ij-s row "stmt")) get-value)])
     (send (vector-ref summary-cells (summary-ij-s row "stmt-bal")) set-value
           (acct-bal-str acct s-which-stmt-date))
-    (for/list ([colname (list "new-cr" "new-dr" "reconciliation" "more-seen" "should-match")])
+    (for/list ([colname (list "new-cr" "new-dr" "reconciliation" "unmatched" "should-match")])
       (send (vector-ref summary-cells (summary-ij-s row colname)) set-value ""))))
 
 (define (detail-update-stmt-bal t)
@@ -417,7 +417,7 @@
               (let ([bal (get-stmt-bal-for-date acct-date-bals (string->number s-which-stmt-date))])
                 (if bal (format-exact bal 2) "n/a"))
               ""))
-    (for/list ([rowname (list "new-cr" "new-dr" "reconciliation" "more-seen" "should-match")])
+    (for/list ([rowname (list "new-cr" "new-dr" "reconciliation" "unmatched" "should-match")])
       (send (vector-ref detail-cells (detail-ij-s rowname col)) set-value ""))))
 
 (define setup-gui-already-called #f)

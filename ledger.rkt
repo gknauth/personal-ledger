@@ -28,6 +28,7 @@
 (define track-item
   (class object%
     (super-new)
+    (inspect #f)
     (field [_dr-matched #f]
            [_cr-matched #f])
     (init-field item)
@@ -446,8 +447,8 @@
 
 (define (plot-accounts-day-bals-forward accounts ndays)
   (plot-accounts-day-bals-range accounts
-                             (today->ymd8)
-                             (ymd8-plusdays->ymd8 (today->ymd8) ndays)))
+                                (today->ymd8)
+                                (ymd8-plusdays->ymd8 (today->ymd8) ndays)))
 
 (define (min-acct-day-bal-forward acctid ndays)
   (define (helper min-seen answer xs)
@@ -467,12 +468,12 @@
                           (ymd8-plusdays->ymd8 (today->ymd8) ndays))))
           
 (define (plot-accounts-day-bals-range accounts start-ymd8 end-ymd8)
-    (parameterize ([plot-x-label "Date"]
-                   [plot-x-ticks (date-ticks)]
-                   [plot-y-label "Amount"])
-      (plot (map (λ (an-account)
-                   (lines-acct-day-bals-range an-account start-ymd8 end-ymd8))
-                 accounts))))
+  (parameterize ([plot-x-label "Date"]
+                 [plot-x-ticks (date-ticks)]
+                 [plot-y-label "Amount"])
+    (plot (map (λ (an-account)
+                 (lines-acct-day-bals-range an-account start-ymd8 end-ymd8))
+               accounts))))
 
 (define (lines-acct-day-bals-range an-account start-ymd8 end-ymd8)
   (let* ([bals (day-bals-range (account-id an-account) start-ymd8 end-ymd8)]
@@ -630,7 +631,11 @@
 
 ;; TIP: great for finding which transactions on ledger cleared after statement date
 (define (pr-filtered-unmatched-ledger-items acctid ymd8-end)
-  (pr-ledger-items acctid (filtered-unmatched-ledger-items acctid ymd8-end)))
+  (let ([lis (filtered-unmatched-ledger-items acctid ymd8-end)])
+    (pr-ledger-items acctid lis)
+    (printf "TOTAL:   ~a\n"
+            (~a (format-exact (sum-ledger-items acctid lis) 2)
+                #:min-width 9 #:align 'right))))
 
 (define (sum-filtered-unmatched-ledger-items acctid ymd8-end)
   (foldl + 0 (map (λ (li) (ledger-signed-amount acctid li))
@@ -754,6 +759,7 @@
       (for/list ([statement-acct-track-item statement-acct-track-items])
         (check-ledger-statement-match
          ymd8-end ;; is this the right thing? it's really expecting the statement date
+         ;; maybe use the most recent statement date
          acctid ledger-acct-track-item statement-acct-track-item)))
     (values (filter (λ (x)
                       (let ([amount (statement-item-amount (send x get-item))])
@@ -762,7 +768,7 @@
                               [else         (send x neither-dr-nor-cr-matched?)])))
                     statement-acct-track-items)
             (filter (λ (x)
-                      (let ([amount (ledger-signed-amount acctid (send x get-item))])1
+                      (let ([amount (ledger-signed-amount acctid (send x get-item))])
                         (cond [(< amount 0) (send x cr-unmatched?)]
                               [(> amount 0) (send x dr-unmatched?)]
                               [else         (send x neither-dr-nor-cr-matched?)])))
