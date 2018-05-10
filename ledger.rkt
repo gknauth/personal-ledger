@@ -630,8 +630,15 @@
   (for-each (λ (li) (pr-ledger-item acctid li)) ledger-items))
 
 ;; TIP: great for finding which transactions on ledger cleared after statement date
-(define (pr-filtered-unmatched-ledger-items acctid ymd8-end)
-  (let ([lis (filtered-unmatched-ledger-items acctid ymd8-end)])
+(define (pr-stmt-unmatched-ledger-items acctid ymd8-end)
+  (let ([lis (filtered-stmt-unmatched-ledger-items acctid ymd8-end)])
+    (pr-ledger-items acctid lis)
+    (printf "TOTAL:   ~a\n"
+            (~a (format-exact (sum-ledger-items acctid lis) 2)
+                #:min-width 9 #:align 'right))))
+
+(define (pr-ledger-outstanding-ledger-items acctid ymd8-end)
+  (let ([lis (filtered-ledger-outstanding-ledger-items acctid ymd8-end)])
     (pr-ledger-items acctid lis)
     (printf "TOTAL:   ~a\n"
             (~a (format-exact (sum-ledger-items acctid lis) 2)
@@ -639,13 +646,16 @@
 
 (define (sum-filtered-unmatched-ledger-items acctid ymd8-end)
   (foldl + 0 (map (λ (li) (ledger-signed-amount acctid li))
-                  (filtered-unmatched-ledger-items acctid ymd8-end))))
+                  (filtered-stmt-unmatched-ledger-items acctid ymd8-end))))
 
-(define (filtered-unmatched-ledger-items acctid ymd8-end)
+(define (filtered-stmt-unmatched-ledger-items acctid ymd8-end)
   (let* ([a (unmatched-ledger-items-to-date acctid ymd8-end)]
-         [b (ledger-items-exclude-tags std-skip-tags acctid a)]
-         [c (ledger-items-exclude-prior-matches acctid ymd8-end b)])
-    c))
+         [b (ledger-items-exclude-tags std-skip-tags acctid a)])
+    (ledger-items-exclude-prior-matches acctid ymd8-end b)))
+
+(define (filtered-ledger-outstanding-ledger-items acctid ymd8-end)
+  (let ([lis (unmatched-ledger-items-to-date acctid ymd8-end)])
+    (ledger-items-ledger-outstanding acctid ymd8-end lis)))
 
 ; ymd8 -> ym6
 (define (year-month ymd8)
@@ -672,6 +682,11 @@
             (not (is-prior-month-ledger-item-match acctid ymd8-end a-ledger-item)))
           ledger-items))
 
+(define (ledger-items-ledger-outstanding acctid ymd8-end ledger-items)
+  (filter (λ (a-ledger-item)
+            (is-ledger-outstanding-item-as-of acctid ymd8-end a-ledger-item))
+          ledger-items))
+
 (define (is-prior-month-ledger-item-match acctid ymd8-end a-ledger-item)
   (is-prior/later-month-ledger-item-match acctid ymd8-end a-ledger-item <))
 
@@ -687,27 +702,31 @@
           (op (effective-year-month yyyymmdd-li (string->number tag)) yyyymm-current)
           false))))
 
-(define (outstanding-item-amount-as-of ymd8-end typ acctid a-ledger-item)
+(define (stmt-outstanding-item-amount-as-of ymd8-end typ acctid a-ledger-item)
   (let ([x-amount (ledger-item-amount a-ledger-item)]
         [x-dr-seen (ledger-item-dr-seen a-ledger-item)]
         [x-cr-seen (ledger-item-cr-seen a-ledger-item)])
     (cond [(symbol=? typ 'dr)
            (if (and (string=? acctid (ledger-item-dr-acctid a-ledger-item))
-                    (is-outstanding-item-as-of acctid ymd8-end a-ledger-item x-dr-seen))
+                    (is-stmt-outstanding-item-as-of acctid ymd8-end a-ledger-item x-dr-seen))
                x-amount
                0)]
           [(symbol=? typ 'cr)
            (if (and (string=? acctid (ledger-item-cr-acctid a-ledger-item))
-                    (is-outstanding-item-as-of acctid ymd8-end a-ledger-item x-cr-seen))
+                    (is-stmt-outstanding-item-as-of acctid ymd8-end a-ledger-item x-cr-seen))
                (- x-amount)
                0)]
           [else (error "outstanding-as-of: typ neither 'dr nor 'cr, instead got: " typ)])))
 
-(define (is-outstanding-item-as-of acctid ymd8-end a-ledger-item seen)
+(define (is-stmt-outstanding-item-as-of acctid ymd8-end a-ledger-item seen)
   (or (false? seen)
       (and (string? seen) (string=? seen ":"))
       (is-later-month-ledger-item-match acctid ymd8-end a-ledger-item)))
 
+(define (is-ledger-outstanding-item-as-of acctid ymd8-end a-ledger-item)
+  (let ([tag (appropriate-ledger-item-seen-tag acctid a-ledger-item)])
+    (false? tag)))
+    
 (define (ledger-items-exclude-tags tags-to-exclude acctid ledger-items)
   (filter (λ (li)
             (not (member (if (> (ledger-signed-amount acctid li) 0)
@@ -776,7 +795,7 @@
 
 (define (amounts-new-dr-cr ymd8 typ acctid ledger-items)
   (map (λ (li)
-         (outstanding-item-amount-as-of ymd8 typ acctid li))
+         (stmt-outstanding-item-amount-as-of ymd8 typ acctid li))
        ledger-items))
 
 (define (sum-amounts-new-cr acctid stmt-ymd8 ledger-items)
