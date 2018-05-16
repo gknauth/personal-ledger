@@ -16,7 +16,11 @@
   (instantiate frame%
     ("Detail Information")))
 
-(define summary-cols (vector "acct" "date" "book" "ext" "(- ext book)"
+(define balance-frame
+  (instantiate frame%
+    ("Balances")))
+
+(define summary-cols (vector "acct" "date" "book" "ext" "(- book ext)" "outstanding"
                              "stmt" "stmt-bal" "sync"
                              "new-dr" "new-cr" "reconciliation" "unmatched" "should-match"))
 (define summary-rows
@@ -24,7 +28,7 @@
 
 (define summary-cells (make-vector (* (vector-length summary-cols) (vector-length summary-rows))))
 
-(define detail-rows (vector "acct" "date" "book" "ext" "(- ext book)"
+(define detail-rows (vector "acct" "date" "book" "ext" "(- book ext)" "outstanding"
                             "stmt" "stmt-bal" "sync"
                             "new-dr" "new-cr" "reconciliation" "unmatched" "should-match"))
 
@@ -32,6 +36,13 @@
 
 (define detail-cells (make-vector (* (vector-length detail-cols) (vector-length detail-rows))))
   
+(define balance-cols (vector "acct" "date" "ext"))
+
+(define balance-rows
+  (list->vector (cons empty (map (λ (x) (account-id x)) accounts-to-show))))
+
+(define balance-cells (make-vector (* (vector-length balance-cols) (vector-length balance-rows))))
+
 ; get the column index for the name, -1 if no such column name
 ; string -> integer
 (define (summary-col-name-index name)
@@ -55,7 +66,6 @@
 (define summary-table-panel
   (instantiate table-panel%
     (summary-frame)
-    ;(style '(border))
     (dimensions `(,(+ 1 (vector-length summary-rows)) ,(vector-length summary-cols)))
     (column-stretchability #t)
     (row-stretchability #f)))
@@ -63,8 +73,14 @@
 (define detail-table-panel
   (instantiate table-panel%
     (detail-frame)
-    ;(style '(border))
     (dimensions `(,(+ 1 (vector-length detail-rows)) ,(vector-length detail-cols)))
+    (column-stretchability #t)
+    (row-stretchability #f)))
+
+(define balance-table-panel
+  (instantiate table-panel%
+    (balance-frame)
+    (dimensions `(,(+ 1 (vector-length balance-rows)) ,(vector-length balance-cols)))
     (column-stretchability #t)
     (row-stretchability #f)))
 
@@ -76,6 +92,9 @@
 (define (detail-ij row col)
   (+ (* row (vector-length detail-cols)) col))
 
+(define (balance-ij row col)
+  (+ (* row (vector-length balance-cols)) col))
+
 ; integer string -> integer
 (define (summary-ij-s row col-name)
   (let ([col (summary-col-name-index col-name)])
@@ -83,7 +102,7 @@
         (error "col-name ~a is invalid" col-name)
         (summary-ij row col))))
 
-; integer string -> integer
+; string integer -> integer
 (define (detail-ij-s row-name col)
   (let ([row (detail-row-name-index row-name)])
     (if (= -1 row)
@@ -168,6 +187,11 @@
          [cell (vector-ref detail-cells ij)])
     (send cell get-string (send cell get-selection))))
 
+(define (get-detail-date-ymd8)
+  (let* ([ij (detail-ij-s "date" 0)]
+         [cell (vector-ref detail-cells ij)])
+    (string->number (send cell get-value))))
+
 (define (setup-detail-cells)
   (for ([row (in-range (vector-length detail-rows))])
     (for ([col (in-range (vector-length detail-cols))])
@@ -217,6 +241,14 @@
                                                   (plot-day-bals-forward
                                                    (hash-ref accounts-ht (get-detail-selected-acct))
                                                    60))))]
+                                [(= row (detail-row-name-index "outstanding"))
+                                 (new button%
+                                      (parent detail-table-panel)
+                                      (label "show")
+                                      (callback (λ (t e)
+                                                  (show-outstanding-ledger-items
+                                                   (get-detail-selected-acct)
+                                                   (get-detail-date-ymd8)))))]
                                 [(= row (detail-row-name-index "unmatched"))
                                  (new button%
                                       (parent detail-table-panel)
@@ -225,6 +257,33 @@
                                            (parent detail-table-panel)
                                            (label ""))]))]
             [else (error "setup-detail-cells should not get here")]))))
+
+(define (mk-balance-outstanding-frame)
+  (instantiate frame% ("Outstanding Transactions")))
+
+(define (mk-balance-outstanding-panel parent-frame)
+  (instantiate panel%
+    [parent-frame]
+    [min-width 800]
+    [min-height 250]
+    [style (list 'vscroll)]))
+
+(define (mk-balance-outstanding-text-field parent-panel acctid font-size text)
+  (new text-field%
+       [label acctid]
+       [parent parent-panel]
+       [font (make-object font% font-size 'modern)]
+       [init-value text]
+       [style (list 'multiple 'vertical-label)]
+       [stretchable-width #t]
+       [stretchable-height #t]))
+
+(define (show-outstanding-ledger-items acctid ymd8)
+  (let* ([frame (mk-balance-outstanding-frame)]
+         [panel (mk-balance-outstanding-panel frame)]
+         [textfield (mk-balance-outstanding-text-field panel acctid 14
+                               (format-outstanding-ledger-items acctid ymd8))])                        
+    (send frame show #t)))
 
 (define (update-all-summary-rows)
   (for ([row (in-range (vector-length summary-rows))])
@@ -237,10 +296,11 @@
          [t (vector-ref detail-cells (detail-ij-s "date" col))]
          [s-as-of (send t get-value)])
     (when (> (string-length s-as-of) 0)
-      (update-detail-book-ext-diff (string->number s-as-of))
-      (update-detail-stmt-choices)
-      (update-detail-stmt-bal)
-      )))
+      (let ([ymd8 (string->number s-as-of)])
+        (update-detail-book-ext-diff ymd8)
+        (update-outstanding ymd8)
+        (update-detail-stmt-choices)
+        (update-detail-stmt-bal)))))
 
 (define (update-detail-stmt-choices)
   (let ([choice-o (detail-choice-o-named "stmt")])
@@ -249,13 +309,13 @@
                 (send choice-o append x))
               (get-stmt-dates (get-detail-selected-acct)))))
 
-(define (detail-cell-named name)
-  (vector-ref detail-cells (detail-row-name-index name)))
+(define (detail-cell-named-in-col name col)
+  (vector-ref detail-cells (detail-ij-s name col)))
 
 (define (update-detail-stmt-bal)
   (let ([acct (get-detail-selected-acct)]
         [s-which-stmt-date (detail-value-choice-o-named "stmt")])
-    (send (detail-cell-named "stmt-bal") set-value (acct-bal-str acct s-which-stmt-date))))
+    (send (detail-cell-named-in-col "stmt-bal" 0) set-value (acct-bal-str acct s-which-stmt-date))))
 
 (define (acct-bal-str acct s-stmt-date)
   (let ([acct-date-bals (hash-ref all-stmt-bals acct)])
@@ -282,23 +342,30 @@
          [book-ext-diff (get-book-ext-diff acct ymd8)]
          [book (first book-ext-diff)]
          [ext (second book-ext-diff)]
-         [ext-minus-book (third book-ext-diff)])
+         [book-minus-ext (third book-ext-diff)])
     (send (vector-ref summary-cells (summary-ij-s row "book")) set-value (format-exact book 2))
     (send (vector-ref summary-cells (summary-ij-s row "ext")) set-value (format-exact ext 2))
-    (send (vector-ref summary-cells (summary-ij-s row "(- ext book)"))
-          set-value (format-exact ext-minus-book 2))))
+    (send (vector-ref summary-cells (summary-ij-s row "(- book ext)"))
+          set-value (format-exact book-minus-ext 2))))
 
 (define (update-detail-book-ext-diff ymd8)
   (let* ([col 0]
-         [acct (get-detail-selected-acct)]
-         [book-ext-diff (get-book-ext-diff acct ymd8)]
+         [acctid (get-detail-selected-acct)]
+         [book-ext-diff (get-book-ext-diff acctid ymd8)]
          [book (first book-ext-diff)]
          [ext (second book-ext-diff)]
-         [ext-minus-book (third book-ext-diff)])
+         [book-minus-ext (third book-ext-diff)])
     (send (vector-ref detail-cells (detail-ij-s "book" col)) set-value (format-exact book 2))
     (send (vector-ref detail-cells (detail-ij-s "ext" col)) set-value (format-exact ext 2))
-    (send (vector-ref detail-cells (detail-ij-s "(- ext book)" col))
-          set-value (format-exact ext-minus-book 2))))
+    (send (vector-ref detail-cells (detail-ij-s "(- book ext)" col))
+          set-value (format-exact book-minus-ext 2))))
+
+(define (update-outstanding ymd8)
+  (let* ([col 0]
+         [acctid (get-detail-selected-acct)]
+         [lis (filtered-outstanding-ledger-items acctid ymd8)])
+    (send (vector-ref detail-cells (detail-ij-s "outstanding" col))
+          set-value (format-exact (sum-ledger-items acctid lis) 2))))
 
 (define (summary-date-changed t e row)
   (when (eq? (send e get-event-type) 'text-field-enter)
@@ -341,7 +408,7 @@
         (when (not (string=? s-stmt-bal "n/a"))
           (send (vector-ref summary-cells (summary-ij-s row "reconciliation")) set-value
                 (format-exact reconciliation 2))
-          (let ([unmatched (sum-ledger-items acct (filtered-unmatched-ledger-items acct stmt-ymd8))])
+          (let ([unmatched (sum-ledger-items acct (filtered-stmt-unmatched-ledger-items acct stmt-ymd8))])
             (send (vector-ref summary-cells (summary-ij-s row "unmatched")) set-value
                   (format-exact unmatched 2))
             (send (vector-ref summary-cells (summary-ij-s row "should-match")) set-value
@@ -369,7 +436,7 @@
         (when (not (or (string=? s-stmt-bal "n/a") (string=? s-stmt-bal "")))
           (send (vector-ref detail-cells (detail-ij-s "reconciliation" col)) set-value
                 (format-exact reconciliation 2))
-          (let ([unmatched (sum-ledger-items acct (filtered-unmatched-ledger-items acct stmt-ymd8))])
+          (let ([unmatched (sum-ledger-items acct (filtered-stmt-unmatched-ledger-items acct stmt-ymd8))])
             (send (vector-ref detail-cells (detail-ij-s "unmatched" col)) set-value
                   (format-exact unmatched 2))
             (send (vector-ref detail-cells (detail-ij-s "should-match" col)) set-value

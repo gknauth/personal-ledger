@@ -146,8 +146,8 @@
          [bals (acct-book-and-ext-balances-on-date acctid ymd8)]
          [book (first bals)]
          [ext (second bals)]
-         [ext-minus-book (- ext book)])
-    (list book ext ext-minus-book)))
+         [book-minus-ext (- book ext)])
+    (list book ext book-minus-ext)))
 
 (define (acct-book-and-ext-balances-on-date acctid as-of)
   (let* ([xs (get-ledger-bal-items acctid)]
@@ -626,8 +626,20 @@
 (define (sum-ledger-items acctid ledger-items)
   (foldl + 0 (map (λ (li) (ledger-signed-amount acctid li)) ledger-items)))
 
+(define (format-ledger-items acctid ledger-items)
+  (apply string-append (map (λ (li) (format-ledger-item acctid li)) ledger-items)))
+
+(define (fpr-ledger-items acctid ledger-items port)
+  (fprintf port (format-ledger-items acctid ledger-items)))
+
 (define (pr-ledger-items acctid ledger-items)
-  (for-each (λ (li) (pr-ledger-item acctid li)) ledger-items))
+  (fprintf (current-output-port) (format-ledger-items acctid ledger-items)))
+
+(define (pr-ledger-items-and-sum acctid ledger-items)
+  (pr-ledger-items acctid ledger-items)
+  (printf "TOTAL:   ~a\n"
+            (~a (format-exact (sum-ledger-items acctid ledger-items) 2)
+                #:min-width 9 #:align 'right)))
 
 ;; TIP: great for finding which transactions on ledger cleared after statement date
 (define (pr-stmt-unmatched-ledger-items acctid ymd8-end)
@@ -637,49 +649,52 @@
             (~a (format-exact (sum-ledger-items acctid lis) 2)
                 #:min-width 9 #:align 'right))))
 
-(define (pr-ledger-outstanding-ledger-items acctid ymd8-end)
-  (let ([lis (filtered-ledger-outstanding-ledger-items acctid ymd8-end)])
+(define (pr-cleared-after-stmt-ledger-items acctid ymd8-end)
+  (let ([lis (filtered-cleared-after-stmt-ledger-items acctid ymd8-end)])
     (pr-ledger-items acctid lis)
     (printf "TOTAL:   ~a\n"
             (~a (format-exact (sum-ledger-items acctid lis) 2)
                 #:min-width 9 #:align 'right))))
 
-(define (sum-filtered-unmatched-ledger-items acctid ymd8-end)
-  (foldl + 0 (map (λ (li) (ledger-signed-amount acctid li))
-                  (filtered-stmt-unmatched-ledger-items acctid ymd8-end))))
+(define (format-outstanding-ledger-items acctid ymd8-end)
+  (let ([lis (filtered-outstanding-ledger-items acctid ymd8-end)])
+    (format "~a~a~a\n"
+            (format-ledger-items acctid lis)
+            "TOTAL:   "
+            (~a (format-exact (sum-ledger-items acctid lis) 2)
+                #:min-width 9 #:align 'right))))
+
+(define (fpr-outstanding-ledger-items acctid ymd8-end port)
+  (fprintf port (format-outstanding-ledger-items acctid ymd8-end)))
+
+(define (pr-outstanding-ledger-items acctid ymd8-end)
+  (fpr-outstanding-ledger-items acctid ymd8-end (current-output-port)))
+
+;(define (sum-filtered-unmatched-ledger-items acctid ymd8-end)
+;  (foldl + 0 (map (λ (li) (ledger-signed-amount acctid li))
+;                  (filtered-stmt-unmatched-ledger-items acctid ymd8-end))))
 
 (define (filtered-stmt-unmatched-ledger-items acctid ymd8-end)
   (let* ([a (unmatched-ledger-items-to-date acctid ymd8-end)]
          [b (ledger-items-exclude-tags std-skip-tags acctid a)])
     (ledger-items-exclude-prior-matches acctid ymd8-end b)))
 
-(define (filtered-ledger-outstanding-ledger-items acctid ymd8-end)
+(define (filtered-cleared-after-stmt-ledger-items acctid ymd8-end)
+  (let ([lis (unmatched-ledger-items-to-date acctid ymd8-end)])
+    (ledger-items-cleared-after-stmt acctid ymd8-end lis)))
+
+(define (filtered-outstanding-ledger-items acctid ymd8-end)
   (let ([lis (unmatched-ledger-items-to-date acctid ymd8-end)])
     (ledger-items-ledger-outstanding acctid ymd8-end lis)))
-
-; ymd8 -> ym6
-(define (year-month ymd8)
-  (let ([yyyy (quotient ymd8 10000)]
-        [mm (quotient (remainder ymd8 10000) 100)])
-    (+ (* 100 yyyy) mm)))
-
-; 2017mmdd 01 -> 201701
-; 2016mmdd 13 -> 201701
-; 2015mmdd 25 -> 201701
-; ymd8 integer -> ym6
-(define (effective-year-month ymd8 tag-month)
-  (let-values ([(quo rem) (quotient/remainder tag-month 12)])
-    (+ (* 100 (+ (quotient ymd8 10000) (* quo))) rem)))
-
-; integer integer -> (oneof -1 0 1)
-(define (compare-year-months a b)
-  (cond [(< a b) -1]
-        [(= a b) 0]
-        [(> a b) 1]))
 
 (define (ledger-items-exclude-prior-matches acctid ymd8-end ledger-items)
   (filter (λ (a-ledger-item)
             (not (is-prior-month-ledger-item-match acctid ymd8-end a-ledger-item)))
+          ledger-items))
+
+(define (ledger-items-cleared-after-stmt acctid ymd8-end ledger-items)
+  (filter (λ (a-ledger-item)
+            (is-cleared-after-stmt acctid ymd8-end a-ledger-item))
           ledger-items))
 
 (define (ledger-items-ledger-outstanding acctid ymd8-end ledger-items)
@@ -718,11 +733,18 @@
                0)]
           [else (error "outstanding-as-of: typ neither 'dr nor 'cr, instead got: " typ)])))
 
+; matches #f, : and later-month items
 (define (is-stmt-outstanding-item-as-of acctid ymd8-end a-ledger-item seen)
   (or (false? seen)
       (and (string? seen) (string=? seen ":"))
       (is-later-month-ledger-item-match acctid ymd8-end a-ledger-item)))
 
+; matches : and later-month items
+(define (is-cleared-after-stmt acctid ymd8-end a-ledger-item seen)
+  (or (and (string? seen) (string=? seen ":"))
+      (is-later-month-ledger-item-match acctid ymd8-end a-ledger-item)))
+
+; matches only #f items
 (define (is-ledger-outstanding-item-as-of acctid ymd8-end a-ledger-item)
   (let ([tag (appropriate-ledger-item-seen-tag acctid a-ledger-item)])
     (false? tag)))
@@ -757,8 +779,8 @@
                   (pr-ledger-item acctid li)))
               ledger-unmatched)))
 
-(define (pr-ledger-item acctid li)
-  (printf "~a ~a ~a ~a / ~a\n"
+(define (format-ledger-item acctid li)
+  (format "~a ~a ~a ~a / ~a\n"
           (ledger-item-date li)
           (~a (format-exact (ledger-signed-amount acctid li) 2)
               #:min-width 9 #:align 'right)
@@ -768,6 +790,12 @@
               #:min-width 2 #:align 'left)
           (ledger-item-payee li)
           (ledger-item-description li)))
+
+(define (fpr-ledger-item acctid li port)
+  (fprintf port (format-ledger-item acctid li)))
+
+(define (pr-ledger-item acctid li)
+  (fpr-ledger-item acctid li (current-output-port)))
 
 (define (examine-acct acctid ymd8-end)
   (let* ([statement-acct-items (statement-filter-acct acctid (statement-range jan01 ymd8-end all-statement-items))]
@@ -839,3 +867,24 @@
                           (ledger-item-payee x)
                           (ledger-item-description x))))
               reconciliation-ledger-items)))
+
+; ymd8 -> ym6
+(define (year-month ymd8)
+  (let ([yyyy (quotient ymd8 10000)]
+        [mm (quotient (remainder ymd8 10000) 100)])
+    (+ (* 100 yyyy) mm)))
+
+; 2017mmdd 01 -> 201701
+; 2016mmdd 13 -> 201701
+; 2015mmdd 25 -> 201701
+; ymd8 integer -> ym6
+(define (effective-year-month ymd8 tag-month)
+  (let-values ([(quo rem) (quotient/remainder tag-month 12)])
+    (+ (* 100 (+ (quotient ymd8 10000) (* quo))) rem)))
+
+; integer integer -> (oneof -1 0 1)
+(define (compare-year-months a b)
+  (cond [(< a b) -1]
+        [(= a b) 0]
+        [(> a b) 1]))
+
