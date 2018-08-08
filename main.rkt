@@ -298,7 +298,7 @@
     (when (> (string-length s-as-of) 0)
       (let ([ymd8 (string->number s-as-of)])
         (update-detail-book-ext-diff ymd8)
-        (update-outstanding ymd8)
+        (update-detail-outstanding ymd8)
         (update-detail-stmt-choices)
         (update-detail-stmt-bal)))))
 
@@ -360,7 +360,7 @@
     (send (vector-ref detail-cells (detail-ij-s "(- book ext)" col))
           set-value (format-exact book-minus-ext 2))))
 
-(define (update-outstanding ymd8)
+(define (update-detail-outstanding ymd8)
   (let* ([col 0]
          [acctid (get-detail-selected-acct)]
          [lis (filtered-outstanding-ledger-items acctid ymd8)])

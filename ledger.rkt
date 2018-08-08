@@ -160,6 +160,13 @@
               (ledger-bal-item-balance-seen (first (reverse ys)))))
     ))
 
+(define (pr-acct-book-and-ext-balances-on-date acctid as-of)
+  (let* ([ls (acct-book-and-ext-balances-on-date acctid as-of)]
+         [a (first ls)]
+         [b (second ls)]
+         [diff (- a b)])
+    (printf "~a ~a ~a\n" (exact->inexact a) (exact->inexact b) (exact->inexact diff))))
+
 ; to return a number ymd8 must be one of the ymd8 values in the list
 ; (listof (list ymd8 exact)) ymd8 -> exact
 (define (get-stmt-bal-for-date date-bals ymd8)
@@ -450,6 +457,10 @@
                                 (today->ymd8)
                                 (ymd8-plusdays->ymd8 (today->ymd8) ndays)))
 
+(define (pr-min-acct-day-bal-forward acctid ndays)
+  (let ([b (min-acct-day-bal-forward acctid ndays)])
+    (printf "~a ~a\n" (day-bal-date b) (format-exact (day-bal-balance b) 2))))
+
 (define (min-acct-day-bal-forward acctid ndays)
   (define (helper min-seen answer xs)
     (cond [(empty? xs) answer]
@@ -467,6 +478,40 @@
                           (today->ymd8)
                           (ymd8-plusdays->ymd8 (today->ymd8) ndays))))
           
+(define (pr-outlook-forward accts ndays)
+  (let ([d (today->ymd8)])
+    (for-each (λ (a)
+                (printf "===== account: ~a on ~a =====~n~nledger ext diff:~n" a d)
+                (pr-acct-book-and-ext-balances-on-date a d)
+                (printf "~nmininum balance next ~a days:~n" ndays)
+                (pr-min-acct-day-bal-forward a ndays)
+                (printf "~noutstanding ledger items:~n")
+                (pr-outstanding-ledger-items a d) (printf "~n"))
+              accts)))
+
+(define (pr-outflow-forward acct ndays)
+  (let* ([rx #rx"UNSCHED"]
+         [d0 (today->ymd8)]
+         [d1 (ymd8-plusdays->ymd8 d0 ndays)]
+         [lis (filter (λ (li)
+                        (and (<= (ledger-item-date li) d1)
+                             (string=? acct (ledger-item-cr-acctid li))
+                             (or (regexp-match rx (ledger-item-description li))
+                                 (false? (ledger-item-cr-seen li)))))
+                      all-ledger-items)]
+         [total 0.0])
+    (for-each (λ (li)
+                (set! total (+ total (ledger-item-amount li)))
+                (printf "~a ~a ~a ~a / ~a\n"
+                        (ledger-item-date li)
+                        (~a (format-exact total 2)
+                            #:min-width 8 #:align 'right)
+                        (~a (format-exact (ledger-item-amount li) 2)
+                            #:min-width 8 #:align 'right)
+                        (ledger-item-payee li)
+                        (ledger-item-description li)))
+              lis)))
+
 (define (plot-accounts-day-bals-range accounts start-ymd8 end-ymd8)
   (parameterize ([plot-x-label "Date"]
                  [plot-x-ticks (date-ticks)]
