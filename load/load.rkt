@@ -46,15 +46,13 @@
          make-transaction-sql
          generate-ledger-sql-file)
 
-(define home-dirname
-  ;; "/Users/gknauth"
-  "/home/gknauth"
-  )
 (define sql-insert-ledger-basename "insert")
 (define family-members '(gsk rjdk adk wwk))
 
 (define (ledger-input-dir year)
-  (string-append home-dirname "/Dropbox/me/" (number->string year)))
+  (unless (getenv "ME")
+    (error "ME must be defined"))
+  (string-append (getenv "ME") "/" (number->string year)))
 
 (define (ledger-input-filename year)
   (string-append (ledger-input-dir year) "/ledger"))
