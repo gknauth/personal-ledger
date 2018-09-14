@@ -1,4 +1,4 @@
-#!/usr/sbin/racket
+#!/usr/bin/env racket
 #lang racket
 
 (require racket/cmdline
