@@ -486,7 +486,9 @@
                 (printf "~nmininum balance next ~a days:~n" ndays)
                 (pr-min-acct-day-bal-forward a ndays)
                 (printf "~noutstanding ledger items:~n")
-                (pr-outstanding-ledger-items a d) (printf "~n"))
+                (pr-outstanding-ledger-items a d) (printf "~n")
+                (printf "outflow:~n")
+                (pr-outflow-forward a d) (printf "~n"))
               accts)))
 
 (define (pr-outflow-forward acct ndays)
