@@ -252,7 +252,11 @@
                                 [(= row (detail-row-name-index "unmatched"))
                                  (new button%
                                       (parent detail-table-panel)
-                                      (label "show"))]
+                                      (label "show")
+                                      (callback (λ (t e)
+                                                  (show-unmatched-ledger-items
+                                                   (get-detail-selected-acct)
+                                                   (get-detail-date-ymd8)))))]
                                 [else (new message%
                                            (parent detail-table-panel)
                                            (label ""))]))]
@@ -281,6 +285,13 @@
 (define (show-outstanding-ledger-items acctid ymd8)
   (let* ([frame (mk-balance-outstanding-frame)]
          [panel (mk-balance-outstanding-panel frame)]
+         [textfield (mk-balance-outstanding-text-field panel acctid 14
+                               (format-outstanding-ledger-items acctid ymd8))])                        
+    (send frame show #t)))
+
+(define (show-unmatched-ledger-items acctid ymd8)
+  (let* ([frame (mk-unmatched-items-frame)]
+         [panel (mk-unmatched-items-panel frame)]
          [textfield (mk-balance-outstanding-text-field panel acctid 14
                                (format-outstanding-ledger-items acctid ymd8))])                        
     (send frame show #t)))
