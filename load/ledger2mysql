@@ -1,0 +1,60 @@
+#!/bin/bash
+
+include () {
+    if [[ -f "$1" ]]; then
+        source "$1"
+    else
+	echo "can't source file that doesn't exist: $1"
+	exit 1
+    fi
+}
+test -z "$UNAME2" && echo "UNAME2 not set, so can't read ~/.bashrc_\${UNAME2}" && exit 1
+include ~/.mysql-${UNAME2}
+test -z "$DBACCESS" && echo "DBACCESS not set in ~/.mysql-${UNAME2}, so MySQL ops would fail" && exit 1
+test ! -r ~/.ledger-${UNAME2} && echo "~/.ledger-${UNAME2} not found" && exit 1
+include ~/.ledger-${UNAME2}
+test -z "$LGRBINDIR" && echo "LGRBINDIR not set in ~/.ledger-${UNAME2}, so Racket scripts won't work" %% exit 1
+
+function usage {
+  echo "usage: ledger2mysql yyyy"
+  exit 1
+}
+
+if [ $# -ne 1 ]; then
+  usage
+fi
+
+YEAR=$1
+
+okyear=false
+if [ ${YEAR} -ge 1978 ] && [ ${YEAR} -le 2100 ]; then
+ okyear=true
+fi
+if [ ${okyear} = false ]; then
+  usage
+fi
+
+FINDIR=${ME}/${YEAR}
+test ! -d "$FINDIR" && echo "FINDIR not a directory, so can't cd $FINDIR" && exit 1
+
+cd ${FINDIR}
+mkdir -p -m 700 sql
+
+${LGRBINDIR}/go.rkt ${YEAR}
+
+function chkexist {
+  if [ ! -r "$1" ]; then
+    echo "file $1 does not exist"
+    exit 1
+  fi
+}
+
+chkexist sql/delete.sql
+chkexist sql/insert.sql
+
+if [ $? -eq 0 ]; then
+  ${MYSQL} ${DBACCESS} ledger < sql/delete.sql
+fi
+if [ $? -eq 0 ]; then
+  ${MYSQL} ${DBACCESS} ledger < sql/insert.sql
+fi
