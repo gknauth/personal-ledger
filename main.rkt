@@ -182,15 +182,35 @@
                                      (min-width 120))])
                          ))))))
 
-(define (get-detail-selected-acct)
-  (let* ([ij (detail-ij-s "acct" 0)]
-         [cell (vector-ref detail-cells ij)])
-    (send cell get-string (send cell get-selection))))
+(define (detail-date-ymd8)
+  (text-field->number (detail-cell-named "date")))
 
-(define (get-detail-date-ymd8)
-  (let* ([ij (detail-ij-s "date" 0)]
-         [cell (vector-ref detail-cells ij)])
-    (string->number (send cell get-value))))
+(define (detail-selected-acct)
+  (choice->string (detail-cell-named "acct")))
+
+(define (detail-stmt-date-ymd8)
+  (choice->number (detail-cell-named "stmt")))
+
+(define (detail-cell-named name)
+  (vector-ref detail-cells (detail-ij-s name 0)))
+
+(define (choice->string choice)
+  (send choice get-string (send choice get-selection)))
+
+(define (choice->number choice)
+  (string->number (choice->string choice)))
+
+(define (text-field->string text-field)
+  (send text-field get-value))
+
+(define (text-field->number text-field)
+  (string->number (text-field->string text-field)))
+
+(define (set-text-field-number! text-field num)
+  (set-text-field-string! text-field (number->string num)))
+
+(define (set-text-field-string! text-field str)
+  (send text-field set-value str))
 
 (define (setup-detail-cells)
   (for ([row (in-range (vector-length detail-rows))])
@@ -216,7 +236,7 @@
                                  (new choice%
                                       (parent detail-table-panel)
                                       (label "stmt")
-                                      (choices (get-stmt-dates (get-detail-selected-acct)))
+                                      (choices (get-stmt-dates (detail-selected-acct)))
                                       (callback (λ (t e)
                                                   (detail-stmt-date-changed t e)))
                                       (min-width std-col-width))]
@@ -239,7 +259,7 @@
                                       (label "plot")
                                       (callback (λ (t e)
                                                   (plot-day-bals-forward
-                                                   (hash-ref accounts-ht (get-detail-selected-acct))
+                                                   (hash-ref accounts-ht (detail-selected-acct))
                                                    60))))]
                                 [(= row (detail-row-name-index "outstanding"))
                                  (new button%
@@ -247,16 +267,16 @@
                                       (label "show")
                                       (callback (λ (t e)
                                                   (show-outstanding-ledger-items
-                                                   (get-detail-selected-acct)
-                                                   (get-detail-date-ymd8)))))]
+                                                   (detail-selected-acct)
+                                                   (detail-date-ymd8)))))]
                                 [(= row (detail-row-name-index "unmatched"))
                                  (new button%
                                       (parent detail-table-panel)
                                       (label "show")
                                       (callback (λ (t e)
                                                   (show-unmatched-ledger-items
-                                                   (get-detail-selected-acct)
-                                                   (get-detail-date-ymd8)))))]
+                                                   (detail-selected-acct)
+                                                   (detail-stmt-date-ymd8)))))]
                                 [else (new message%
                                            (parent detail-table-panel)
                                            (label ""))]))]
@@ -265,7 +285,17 @@
 (define (mk-balance-outstanding-frame)
   (instantiate frame% ("Outstanding Transactions")))
 
+(define (mk-unmatched-items-frame)
+  (instantiate frame% ("Unmatched Items")))
+
 (define (mk-balance-outstanding-panel parent-frame)
+  (instantiate panel%
+    [parent-frame]
+    [min-width 800]
+    [min-height 250]
+    [style (list 'vscroll)]))
+
+(define (mk-unmatched-items-panel parent-frame)
   (instantiate panel%
     [parent-frame]
     [min-width 800]
@@ -286,47 +316,48 @@
   (let* ([frame (mk-balance-outstanding-frame)]
          [panel (mk-balance-outstanding-panel frame)]
          [textfield (mk-balance-outstanding-text-field panel acctid 14
-                               (format-outstanding-ledger-items acctid ymd8))])                        
+                                                       (format-outstanding-ledger-items acctid ymd8))])                        
     (send frame show #t)))
 
 (define (show-unmatched-ledger-items acctid ymd8)
   (let* ([frame (mk-unmatched-items-frame)]
          [panel (mk-unmatched-items-panel frame)]
          [textfield (mk-balance-outstanding-text-field panel acctid 14
-                               (format-outstanding-ledger-items acctid ymd8))])                        
+                                                       (format-stmt-unmatched-ledger-items acctid ymd8))])                        
     (send frame show #t)))
 
 (define (update-all-summary-rows)
   (for ([row (in-range (vector-length summary-rows))])
     (when (> row 0)
       (let ([t (vector-ref summary-cells (summary-ij-s row "date"))])
-        (update-summary-row t row)))))
+        (summary-update-row t row)))))
 
-(define (update-detail)
-  (let* ([col 0]
-         [t (vector-ref detail-cells (detail-ij-s "date" col))]
-         [s-as-of (send t get-value)])
-    (when (> (string-length s-as-of) 0)
-      (let ([ymd8 (string->number s-as-of)])
-        (update-detail-book-ext-diff ymd8)
-        (update-detail-outstanding ymd8)
-        (update-detail-stmt-choices)
-        (update-detail-stmt-bal)))))
+(define (detail-update)
+  (let ([ymd8 (text-field->number (detail-cell-named "date"))])
+    (detail-update-book-ext-diff-outstanding-as-of ymd8)
+    (detail-update-stmt-choices)
+    (detail-update-stmt-bal)))
 
-(define (update-detail-stmt-choices)
+(define (detail-sync)
+  (let ([ymd8 (choice->number (detail-cell-named "stmt"))])
+    (detail-update-date ymd8)
+    (detail-update-book-ext-diff-outstanding-as-of ymd8)
+    (detail-update-stmt-bal)))
+
+(define (detail-update-stmt-choices)
   (let ([choice-o (detail-choice-o-named "stmt")])
     (send choice-o clear)
     (for-each (λ (x)
                 (send choice-o append x))
-              (get-stmt-dates (get-detail-selected-acct)))))
+              (get-stmt-dates (detail-selected-acct)))))
 
 (define (detail-cell-named-in-col name col)
   (vector-ref detail-cells (detail-ij-s name col)))
 
-(define (update-detail-stmt-bal)
-  (let ([acct (get-detail-selected-acct)]
-        [s-which-stmt-date (detail-value-choice-o-named "stmt")])
-    (send (detail-cell-named-in-col "stmt-bal" 0) set-value (acct-bal-str acct s-which-stmt-date))))
+;(define (detail-update-stmt-bal)
+;  (let ([acct (get-detail-selected-acct)]
+;        [s-which-stmt-date (detail-value-choice-o-named "stmt")])
+;    (send (detail-cell-named-in-col "stmt-bal" 0) set-value (acct-bal-str acct s-which-stmt-date))))
 
 (define (acct-bal-str acct s-stmt-date)
   (let ([acct-date-bals (hash-ref all-stmt-bals acct)])
@@ -335,63 +366,53 @@
           (if bal (format-exact bal 2) "n/a"))
         "")))
 
+;; TODO do we need this?
 (define (detail-choice-o-named name)
   (vector-ref detail-cells (detail-ij (detail-row-name-index name) 0)))
 
+;; TODO do we need this?
 (define (detail-value-choice-o-named name)
   (let* ([choice-o (detail-choice-o-named name)]
          [i (send choice-o get-selection)])
     (if i (send choice-o get-string i) "")))
 
-(define (update-summary-row t row)
+(define (summary-update-row t row)
   (let ([s-as-of (send t get-value)])
     (when (> (string-length s-as-of) 0)
-      (update-summary-book-ext-diff row (string->number s-as-of)))))
+      (summary-update-book-ext-diff-outstanding row (string->number s-as-of)))))
 
-(define (update-summary-book-ext-diff row ymd8)
-  (let* ([acct (send (vector-ref summary-cells (summary-ij-s row "acct")) get-value)]
-         [book-ext-diff (get-book-ext-diff acct ymd8)]
-         [book (first book-ext-diff)]
-         [ext (second book-ext-diff)]
-         [book-minus-ext (third book-ext-diff)])
-    (send (vector-ref summary-cells (summary-ij-s row "book")) set-value (format-exact book 2))
-    (send (vector-ref summary-cells (summary-ij-s row "ext")) set-value (format-exact ext 2))
-    (send (vector-ref summary-cells (summary-ij-s row "(- book ext)"))
-          set-value (format-exact book-minus-ext 2))))
-
-(define (update-detail-book-ext-diff ymd8)
-  (let* ([col 0]
-         [acctid (get-detail-selected-acct)]
+(define (summary-update-book-ext-diff-outstanding row ymd8)
+  (let* ([acctid (send (vector-ref summary-cells (summary-ij-s row "acct")) get-value)]
          [book-ext-diff (get-book-ext-diff acctid ymd8)]
          [book (first book-ext-diff)]
          [ext (second book-ext-diff)]
-         [book-minus-ext (third book-ext-diff)])
-    (send (vector-ref detail-cells (detail-ij-s "book" col)) set-value (format-exact book 2))
-    (send (vector-ref detail-cells (detail-ij-s "ext" col)) set-value (format-exact ext 2))
-    (send (vector-ref detail-cells (detail-ij-s "(- book ext)" col))
-          set-value (format-exact book-minus-ext 2))))
+         [book-minus-ext (third book-ext-diff)]
+         [outstanding (sum-outstanding-ledger-items acctid ymd8)])
+    (send (vector-ref summary-cells (summary-ij-s row "book")) set-value (format-exact book 2))
+    (send (vector-ref summary-cells (summary-ij-s row "ext")) set-value (format-exact ext 2))
+    (send (vector-ref summary-cells (summary-ij-s row "(- book ext)"))
+          set-value (format-exact book-minus-ext 2))
+    (send (vector-ref summary-cells (summary-ij-s row "outstanding"))
+          set-value (format-exact outstanding 2))))
 
-(define (update-detail-outstanding ymd8)
-  (let* ([col 0]
-         [acctid (get-detail-selected-acct)]
-         [lis (filtered-outstanding-ledger-items acctid ymd8)])
-    (send (vector-ref detail-cells (detail-ij-s "outstanding" col))
-          set-value (format-exact (sum-ledger-items acctid lis) 2))))
+(define (detail-update-outstanding ymd8)
+  (let* ([outstanding (sum-outstanding-ledger-items (detail-selected-acct) ymd8)])
+    (set-text-field-string! (detail-cell-named "outstanding") (format-exact outstanding 2))))
 
 (define (summary-date-changed t e row)
   (when (eq? (send e get-event-type) 'text-field-enter)
-    (update-summary-row t row)))
+    (summary-update-row t row)))
 
 (define (detail-date-changed t e)
   (when (eq? (send e get-event-type) 'text-field-enter)
-    (update-detail)))
+    (detail-update)))
 
 (define (summary-sync-button-pressed t e row)
-  (summary-update-date-book-ext-diff row)
+  (summary-sync-date-book-ext-diff row)
   (summary-update-seen-also row))
 
 (define (detail-sync-button-pressed t e)
-  (detail-update-date-book-ext-diff)
+  (detail-sync)
   (detail-update-seen-also))
 
 (define (get-stmt-dates acct)
@@ -427,55 +448,60 @@
 
 (define (detail-update-seen-also)
   (let* ([col 0]
-         [acct (get-detail-selected-acct)]
+         [acct (detail-selected-acct)]
          [s-which-stmt-date (detail-value-choice-o-named "stmt")]
          [stmt-ymd8 (string->number s-which-stmt-date)]
-         [s-stmt-bal (send (vector-ref detail-cells (detail-ij-s "stmt-bal" col)) get-value)])
+         [s-stmt-bal (text-field->string (detail-cell-named "stmt-bal"))])
     (when (and (= (string-length s-which-stmt-date) 8)
                (> (string-length s-stmt-bal) 0))
-      (let* ([ext (string->number (send (vector-ref detail-cells (detail-ij-s "ext" col)) get-value))]
+      (let* ([ext (text-field->number (detail-cell-named "stmt-bal"))]
              [stmt-bal (string->number (if (string=? s-stmt-bal "n/a") "0" s-stmt-bal))]
              [dr-cr-rec-diff (get-new-dr-new-cr-reconciliation-diff acct stmt-ymd8 ext)]
              [new-dr (first dr-cr-rec-diff)]
              [new-cr (second dr-cr-rec-diff)]
              [reconciliation (third dr-cr-rec-diff)]
              [ext-minus-reconciliation (fourth dr-cr-rec-diff)])
-        (send (vector-ref detail-cells (detail-ij-s "new-dr" col)) set-value
-              (format-exact new-dr 2))
-        (send (vector-ref detail-cells (detail-ij-s "new-cr" col)) set-value
-              (format-exact new-cr 2))
+        (set-text-field-string! (detail-cell-named "new-dr") (format-exact new-dr 2))
+        (set-text-field-string! (detail-cell-named "new-cr") (format-exact new-cr 2))
         (when (not (or (string=? s-stmt-bal "n/a") (string=? s-stmt-bal "")))
-          (send (vector-ref detail-cells (detail-ij-s "reconciliation" col)) set-value
-                (format-exact reconciliation 2))
+          (set-text-field-string! (detail-cell-named "reconciliation") (format-exact reconciliation 2))
           (let ([unmatched (sum-ledger-items acct (filtered-stmt-unmatched-ledger-items acct stmt-ymd8))])
-            (send (vector-ref detail-cells (detail-ij-s "unmatched" col)) set-value
-                  (format-exact unmatched 2))
-            (send (vector-ref detail-cells (detail-ij-s "should-match" col)) set-value
-                  (format-exact (+ reconciliation unmatched) 2))))))))
+        (set-text-field-string! (detail-cell-named "unmatched")
+                                (format-exact unmatched 2))
+        (set-text-field-string! (detail-cell-named "should-match")
+                                (format-exact (+ reconciliation unmatched) 2))))))))
 
-(define (summary-update-date-book-ext-diff row)
+(define (summary-sync-date-book-ext-diff row)
   (let* ([acct (vector-ref summary-rows row)]
          [s-which-stmt-date (send (vector-ref summary-cells (summary-ij-s row "stmt")) get-value)])
     (when (= (string-length s-which-stmt-date) 8)
       (send (vector-ref summary-cells (summary-ij-s row "date")) set-value s-which-stmt-date)
-      (update-summary-book-ext-diff row (string->number s-which-stmt-date)))))
+      (summary-update-book-ext-diff-outstanding row (string->number s-which-stmt-date)))))
 
-(define (detail-update-date-book-ext-diff)
-  (let* ([col 0]
-         [acct (get-detail-selected-acct)]
-         [s-which-stmt-date (detail-value-choice-o-named "stmt")])
-    (when (= (string-length s-which-stmt-date) 8)
-      (send (vector-ref detail-cells (detail-ij-s "date" col)) set-value s-which-stmt-date)
-      (update-detail-book-ext-diff (string->number s-which-stmt-date)))))
+(define (detail-update-book-ext-diff-outstanding-as-of ymd8)
+    (let* ([col 0]
+           [acctid (detail-selected-acct)]
+           [book-ext-diff (get-book-ext-diff acctid ymd8)]
+           [book (first book-ext-diff)]
+           [ext (second book-ext-diff)]
+           [book-minus-ext (third book-ext-diff)]
+           [outstanding (sum-outstanding-ledger-items acctid ymd8)])
+    (send (vector-ref detail-cells (detail-ij-s "book" col)) set-value (format-exact book 2))
+    (send (vector-ref detail-cells (detail-ij-s "ext" col)) set-value (format-exact ext 2))
+    (send (vector-ref detail-cells (detail-ij-s "(- book ext)" col))
+          set-value (format-exact book-minus-ext 2))
+    (send (vector-ref detail-cells (detail-ij-s "outstanding" col))
+          set-value (format-exact outstanding 2))))
 
 (define (summary-stmt-date-changed t e row)
   (summary-update-stmt-bal t row))
 
 (define (detail-stmt-date-changed t e)
-  (detail-update-stmt-bal t))
+  (detail-update-stmt-bal)
+  (detail-clear-stmt-dependents))
 
 (define (detail-acct-changed t e)
-  (update-detail))
+  (detail-update))
 
 (define (summary-update-stmt-bal t row)
   (let* ([acct (vector-ref summary-rows row)]
@@ -485,9 +511,13 @@
     (for/list ([colname (list "new-cr" "new-dr" "reconciliation" "unmatched" "should-match")])
       (send (vector-ref summary-cells (summary-ij-s row colname)) set-value ""))))
 
-(define (detail-update-stmt-bal t)
+(define (detail-update-date ymd8)
+  (let ([text-field (detail-cell-named "date")])
+    (set-text-field-number! text-field ymd8)))
+
+(define (detail-update-stmt-bal)
   (let* ([col 0]
-         [acct (get-detail-selected-acct)]
+         [acct (detail-selected-acct)]
          [acct-date-bals (hash-ref all-stmt-bals acct)]
          [s-which-stmt-date (detail-value-choice-o-named "stmt")])
     (send (vector-ref detail-cells (detail-ij-s "stmt-bal" col)) set-value
@@ -498,6 +528,11 @@
     (for/list ([rowname (list "new-cr" "new-dr" "reconciliation" "unmatched" "should-match")])
       (send (vector-ref detail-cells (detail-ij-s rowname col)) set-value ""))))
 
+(define (detail-clear-stmt-dependents)
+  (let* ([col 0])
+    (for/list ([rowname (list "new-cr" "new-dr" "reconciliation" "unmatched" "should-match")])
+      (send (vector-ref detail-cells (detail-ij-s rowname col)) set-value ""))))
+  
 (define setup-gui-already-called #f)
 
 (define (setup-gui)
@@ -508,13 +543,13 @@
         (setup-summary-cells)
         (setup-detail-cells)
         (update-all-summary-rows)
-        (update-detail))))
+        (detail-update))))
 
 (define (refresh-gui)
   (refresh)
   (load-balances)
   (update-all-summary-rows)
-  (update-detail))
+  (detail-update))
 
 (define (show-gui)
   (send summary-frame show #t)

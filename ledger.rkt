@@ -703,8 +703,19 @@
             (~a (format-exact (sum-ledger-items acctid lis) 2)
                 #:min-width 9 #:align 'right))))
 
+(define (sum-outstanding-ledger-items acctid ymd8-end)
+  (sum-ledger-items acctid (filtered-outstanding-ledger-items acctid ymd8-end)))
+
 (define (format-outstanding-ledger-items acctid ymd8-end)
   (let ([lis (filtered-outstanding-ledger-items acctid ymd8-end)])
+    (format "~a~a~a\n"
+            (format-ledger-items acctid lis)
+            "TOTAL:   "
+            (~a (format-exact (sum-ledger-items acctid lis) 2)
+                #:min-width 9 #:align 'right))))
+
+(define (format-stmt-unmatched-ledger-items acctid ymd8-end)
+  (let ([lis (filtered-stmt-unmatched-ledger-items acctid ymd8-end)])
     (format "~a~a~a\n"
             (format-ledger-items acctid lis)
             "TOTAL:   "
