@@ -1,0 +1,9 @@
+check-ledger-statement-match 20180423 l amex tl ts
+  lrow: #(struct:ledger-item 20180401 80969/100 x trip l amex American Airlines HELGZI: WWK IPT-LAX-SFO-IPT 20180413-20180416 #f 04 #f #f) srow: #(struct:statement-item l amex 20180331 -80969/100 AMERICAN AIRLINES 45800-433-7300 TX)
+  l-date: 20180401 s-date: 20180331
+  l-signed-amount: -80969/100 s-amount: -80969/100 acct-amount-match: acct-amount-cr-matches
+
+check-ledger-statement-match 20180423 l amex tl ts
+  lrow: #(struct:ledger-item 20180402 3499/10 x trip l amex Norwegian Air K2SKF8: GSK BOS-LGW 20180526 #f 04 #f #f) srow: #(struct:statement-item l amex 20180401 -3499/10 NORWEGIAN AIR SHUTTLNORWAY NO)
+  l-date: 20180402 s-date: 20180401
+  l-signed-amount: -3499/10 s-amount: -3499/10 acct-amount-match: acct-amount-cr-matches
