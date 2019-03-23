@@ -60,12 +60,32 @@
 
 ;;; Database Calls
 
-(define acct-balances-ht (make-hash))
+(define acct-stmt-balances-ht (make-hash))     ;; all statement balances
+(define acct-most-recent-balances-ht (make-hash))  ;; most recent balances
+
+; string -> (list-of (list number number))
+(define (db-get-most-recent-actual-balance acctid)
+  (if (hash-has-key? acct-most-recent-balances-ht acctid)
+      (hash-ref acct-most-recent-balances-ht acctid)
+      (let ([answer (let* ([accttype (substring acctid 0 1)]
+                           [acctname (substring acctid 2)]
+                           [rows (query-rows
+                                  the-db
+                                  (string-append
+                                   "select date, amount from balances where acct_type = '" accttype
+                                   "' and acct_name = '" acctname
+                                   "' order by date desc limit 1"))])
+                      (map (λ (row)
+                             (list (sql-date->ymd8 (vector-ref row 0))
+                                   (vector-ref row 1)))
+                           rows))])
+        (hash-set! acct-most-recent-balances-ht acctid answer)
+        answer)))
 
 ; string -> (list-of (list number number))
 (define (db-get-statement-balances acctid)
-  (if (hash-has-key? acct-balances-ht acctid)
-      (hash-ref acct-balances-ht acctid)
+  (if (hash-has-key? acct-stmt-balances-ht acctid)
+      (hash-ref acct-stmt-balances-ht acctid)
       (let ([answer (let* ([accttype (substring acctid 0 1)]
                            [acctname (substring acctid 2)]
                            [rows (query-rows
@@ -78,7 +98,7 @@
                              (list (sql-date->ymd8 (vector-ref row 0))
                                    (vector-ref row 1)))
                            rows))])
-        (hash-set! acct-balances-ht acctid answer)
+        (hash-set! acct-stmt-balances-ht acctid answer)
         answer)))
 
 (define (closest-statement acctid ymd8)
@@ -153,7 +173,8 @@
 (define (refresh)
   (set-all-statement-items!)
   (set-all-ledger-items!)
-  (hash-clear! acct-balances-ht))
+  (hash-clear! acct-stmt-balances-ht)
+  (hash-clear! acct-most-recent-balances-ht))
 
 (refresh)
 
@@ -180,10 +201,19 @@
 
 (define (pr-acct-book-and-ext-balances-on-date acctid as-of)
   (let* ([ls (acct-book-and-ext-balances-on-date acctid as-of)]
-         [a (first ls)]
-         [b (second ls)]
-         [diff (- a b)])
-    (printf "~a ~a ~a\n" (exact->inexact a) (exact->inexact b) (exact->inexact diff))))
+         [book (first ls)]
+         [ext (second ls)]
+         [diff-book-ext (- book ext)]
+         [ymd-mr (db-get-most-recent-actual-balance acctid)])
+    (printf "~a ~a ~a~a\n"
+            (exact->inexact book)
+            (exact->inexact ext)
+            (exact->inexact diff-book-ext)
+            (if (not (empty? ymd-mr))
+                (string-append " (" (number->string (first (first ymd-mr)))
+                               " " (format-exact (second (first ymd-mr)) 2)
+                               " " (format-exact (- (second (first ymd-mr)) ext) 2) ")")
+                ""))))
 
 ; to return a number ymd8 must be one of the ymd8 values in the list
 ; (listof (list ymd8 exact)) ymd8 -> exact
@@ -251,10 +281,10 @@
               (helper acctid (rest ins) (cons (first ins) outs) new-diff)))))
   (reverse (helper acctid (ledger-unseen-discrepancies acctid) empty 0)))
 
-(define (statement-filter-acct acctid statement-items)
+(define (statement-acct acctid statement-items)
   (filter (λ (srow) (string=? (statement-item-acctid srow) acctid)) statement-items))
 
-(define (ledger-filter-acct acctid ledger-items)
+(define (ledger-acct acctid ledger-items)
   (filter (λ (lrow)
             (or (string=? (ledger-item-dr-acctid lrow) acctid)
                 (string=? (ledger-item-cr-acctid lrow) acctid)))
@@ -286,32 +316,32 @@
   (filter (λ (li)
             (or (string=? acctid (ledger-item-dr-acctid li))
                 (string=? acctid (ledger-item-cr-acctid li))))
-          (ledger-range ymd8-a ymd8-b (ledger-filter-acct acctid ledger-items))))
+          (ledger-range ymd8-a ymd8-b (ledger-acct acctid ledger-items))))
 
 (define (ledger-range-acct-dr acctid ymd8-a ymd8-b ledger-items)
   (filter (λ (li)
             (string=? acctid (ledger-item-dr-acctid li)))
-          (ledger-range ymd8-a ymd8-b (ledger-filter-acct acctid ledger-items))))
+          (ledger-range ymd8-a ymd8-b (ledger-acct acctid ledger-items))))
 
 (define (ledger-range-acct-cr acctid ymd8-a ymd8-b ledger-items)
   (filter (λ (li)
             (string=? acctid (ledger-item-cr-acctid li)))
-          (ledger-range ymd8-a ymd8-b (ledger-filter-acct acctid ledger-items))))
+          (ledger-range ymd8-a ymd8-b (ledger-acct acctid ledger-items))))
 
 (define (ledger-range-signed-amounts acctid ymd8-a ymd8-b ledger-items)
   (map (λ (li)
          (ledger-signed-amount acctid li))
-       (ledger-range ymd8-a ymd8-b (ledger-filter-acct acctid ledger-items))))
+       (ledger-range ymd8-a ymd8-b (ledger-acct acctid ledger-items))))
 
 (define (ledger-range-signed-amounts-seen acctid ymd8-a ymd8-b ledger-items)
   (map (λ (li)
          (ledger-signed-amount-seen acctid li))
-       (ledger-range ymd8-a ymd8-b (ledger-filter-acct acctid ledger-items))))
+       (ledger-range ymd8-a ymd8-b (ledger-acct acctid ledger-items))))
 
 (define (ledger-range-signed-amounts-unseen acctid ymd8-a ymd8-b ledger-items)
   (map (λ (li)
          (ledger-signed-amount-unseen acctid li))
-       (ledger-range ymd8-a ymd8-b (ledger-filter-acct acctid ledger-items))))
+       (ledger-range ymd8-a ymd8-b (ledger-acct acctid ledger-items))))
 
 (define (sum-ledger-range-signed-amounts acctid ymd8-a ymd8-b ledger-items)
   (foldl + 0 (ledger-range-signed-amounts acctid ymd8-a ymd8-b ledger-items)))
@@ -445,7 +475,7 @@
       (= (ledger-item-date (ledger-bal-item-ledger-item lbi)) ymd8)))
   (let ([bals (get-day-bals-filter acctid filter-func)])
     (if (empty? bals)
-        (list (first (reverse (day-bals-range acctid 20180101 ymd8))))
+        (list (first (reverse (day-bals-range acctid jan01 ymd8))))
         bals)))
 
 
@@ -499,7 +529,7 @@
 (define (pr-outlook-forward accts ndays)
   (let ([d (today->ymd8)])
     (for-each (λ (a)
-                (printf "===== account: ~a on ~a =====~n~nledger ext diff:~n" a d)
+                (printf "===== account: ~a on ~a =====~n~nledger ext diff (most-recent):~n" a d)
                 (pr-acct-book-and-ext-balances-on-date a d)
                 (printf "~nmininum balance next ~a days:~n" ndays)
                 (pr-min-acct-day-bal-forward a ndays)
@@ -575,7 +605,7 @@
                   (cons (ledger-bal-item in newbal newbal-seen (- newbal newbal-seen)) outs)
                   newbal
                   newbal-seen))))
-  (let ([ins (ledger-filter-acct acctid ledger-items)])
+  (let ([ins (ledger-acct acctid ledger-items)])
     (reverse (helper ins empty starting-balance starting-balance-seen))))
 
 (define (check-ledger-statements-match statement-dates acctid lti sti)
@@ -857,8 +887,8 @@
   (fpr-ledger-item acctid li (current-output-port)))
 
 (define (examine-acct acctid ymd8-end)
-  (let* ([statement-acct-items (statement-filter-acct acctid (statement-range jan01 ymd8-end all-statement-items))]
-         [ledger-acct-items (ledger-filter-acct acctid (ledger-range jan01 ymd8-end all-ledger-items))]
+  (let* ([statement-acct-items (statement-acct acctid (statement-range jan01 ymd8-end all-statement-items))]
+         [ledger-acct-items (ledger-acct acctid (ledger-range jan01 ymd8-end all-ledger-items))]
          [statement-acct-track-items (map (λ (x) (new track-item [item x])) statement-acct-items)]
          [ledger-acct-track-items (map (λ (x) (new track-item [item x])) ledger-acct-items)]
          [stmt-dates (list->vector (filter (λ (x) (and (>= x jan01) (<= x ymd8-end)))
