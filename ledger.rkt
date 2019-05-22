@@ -188,6 +188,37 @@
          [book-minus-ext (- book ext)])
     (list book ext book-minus-ext)))
 
+(define (format-ledger-bal-item acctid lbi)
+ (format "~a ~a ~a ~a"
+         (~a (format-exact (ledger-bal-item-balance lbi) 2) #:min-width 9 #:align 'right)
+         (~a (format-exact (ledger-bal-item-balance-seen lbi) 2) #:min-width 9 #:align 'right)
+         (~a (format-exact (ledger-bal-item-diff lbi) 2) #:min-width 9 #:align 'right)
+         (format-ledger-item acctid (ledger-bal-item-ledger-item lbi))))
+
+(define (pr-acct-book-and-ext-balances-up-through acctid up-through)
+  (for-each
+   (λ (lbi)
+     (printf "~a" (format-ledger-bal-item acctid lbi)))
+   (acct-book-and-ext-balances-up-to-date acctid up-through)))
+
+(define (pr-acct-book-and-ext-balances-between-dates acctid from through)
+  (for-each
+   (λ (lbi)
+     (printf "~a" (format-ledger-bal-item acctid lbi)))
+   (acct-book-and-ext-balances-between-dates acctid from through)))
+
+(define (acct-book-and-ext-balances-up-to-date acctid through)
+  (filter (λ (lbi)
+            (<= (ledger-item-date (ledger-bal-item-ledger-item lbi)) through))
+          (get-ledger-bal-items acctid)))
+
+(define (acct-book-and-ext-balances-between-dates acctid from through)
+  (filter (λ (lbi)
+            (let ([li-date (ledger-item-date (ledger-bal-item-ledger-item lbi))])
+              (and (>= li-date from)
+                   (<= li-date through))))
+          (get-ledger-bal-items acctid)))
+
 (define (acct-book-and-ext-balances-on-date acctid as-of)
   (let* ([xs (get-ledger-bal-items acctid)]
          [ys (filter (λ (x)
@@ -281,14 +312,14 @@
               (helper acctid (rest ins) (cons (first ins) outs) new-diff)))))
   (reverse (helper acctid (ledger-unseen-discrepancies acctid) empty 0)))
 
-(define (statement-acct acctid statement-items)
+(define (statement-acct-matches acctid statement-items)
   (filter (λ (srow) (string=? (statement-item-acctid srow) acctid)) statement-items))
 
-(define (ledger-acct acctid ledger-items)
-  (filter (λ (lrow)
-            (or (string=? (ledger-item-dr-acctid lrow) acctid)
-                (string=? (ledger-item-cr-acctid lrow) acctid)))
-          ledger-items))
+;(define (ledger-acct acctid ledger-items)
+;  (filter (λ (lrow)
+;            (or (string=? (ledger-item-dr-acctid lrow) acctid)
+;                (string=? (ledger-item-cr-acctid lrow) acctid)))
+;          ledger-items))
 
 (define (statement<=ymd8 ymd8 statement-items)
   (filter (λ (si) (<= (statement-item-date si) ymd8)) statement-items))
@@ -312,36 +343,42 @@
             (and (>= (ledger-item-date li) ymd8-a) (<= (ledger-item-date li) ymd8-b)))
           ledger-items))
 
+(define (ledger-acct-matches acctid ledger-items)
+  (filter (λ (li) (ledger-acct-match acctid li)) ledger-items))
+
+(define (ledger-acct-match acctid ledger-item)
+  (or (string=? acctid (ledger-item-dr-acctid ledger-item))
+      (string=? acctid (ledger-item-cr-acctid ledger-item))))
+
 (define (ledger-range-acct acctid ymd8-a ymd8-b ledger-items)
   (filter (λ (li)
-            (or (string=? acctid (ledger-item-dr-acctid li))
-                (string=? acctid (ledger-item-cr-acctid li))))
-          (ledger-range ymd8-a ymd8-b (ledger-acct acctid ledger-items))))
+            (ledger-acct-match acctid li))
+          (ledger-range ymd8-a ymd8-b (ledger-acct-matches acctid ledger-items))))
 
 (define (ledger-range-acct-dr acctid ymd8-a ymd8-b ledger-items)
   (filter (λ (li)
             (string=? acctid (ledger-item-dr-acctid li)))
-          (ledger-range ymd8-a ymd8-b (ledger-acct acctid ledger-items))))
+          (ledger-range ymd8-a ymd8-b (ledger-acct-matches acctid ledger-items))))
 
 (define (ledger-range-acct-cr acctid ymd8-a ymd8-b ledger-items)
   (filter (λ (li)
             (string=? acctid (ledger-item-cr-acctid li)))
-          (ledger-range ymd8-a ymd8-b (ledger-acct acctid ledger-items))))
+          (ledger-range ymd8-a ymd8-b (ledger-acct-matches acctid ledger-items))))
 
 (define (ledger-range-signed-amounts acctid ymd8-a ymd8-b ledger-items)
   (map (λ (li)
          (ledger-signed-amount acctid li))
-       (ledger-range ymd8-a ymd8-b (ledger-acct acctid ledger-items))))
+       (ledger-range ymd8-a ymd8-b (ledger-acct-matches acctid ledger-items))))
 
 (define (ledger-range-signed-amounts-seen acctid ymd8-a ymd8-b ledger-items)
   (map (λ (li)
          (ledger-signed-amount-seen acctid li))
-       (ledger-range ymd8-a ymd8-b (ledger-acct acctid ledger-items))))
+       (ledger-range ymd8-a ymd8-b (ledger-acct-matches acctid ledger-items))))
 
 (define (ledger-range-signed-amounts-unseen acctid ymd8-a ymd8-b ledger-items)
   (map (λ (li)
          (ledger-signed-amount-unseen acctid li))
-       (ledger-range ymd8-a ymd8-b (ledger-acct acctid ledger-items))))
+       (ledger-range ymd8-a ymd8-b (ledger-acct-matches acctid ledger-items))))
 
 (define (sum-ledger-range-signed-amounts acctid ymd8-a ymd8-b ledger-items)
   (foldl + 0 (ledger-range-signed-amounts acctid ymd8-a ymd8-b ledger-items)))
@@ -605,7 +642,7 @@
                   (cons (ledger-bal-item in newbal newbal-seen (- newbal newbal-seen)) outs)
                   newbal
                   newbal-seen))))
-  (let ([ins (ledger-acct acctid ledger-items)])
+  (let ([ins (ledger-acct-matches acctid ledger-items)])
     (reverse (helper ins empty starting-balance starting-balance-seen))))
 
 (define (check-ledger-statements-match statement-dates acctid lti sti)
@@ -700,7 +737,7 @@
 
 (define std-skip-tags (list "bf" "v"))
 
-(define (sum-ledger-items acctid ledger-items)
+(define (sum-ledger-acct-items acctid ledger-items)
   (foldl + 0 (map (λ (li) (ledger-signed-amount acctid li)) ledger-items)))
 
 (define (format-ledger-items acctid ledger-items)
@@ -715,7 +752,7 @@
 (define (pr-ledger-items-and-sum acctid ledger-items)
   (pr-ledger-items acctid ledger-items)
   (printf "TOTAL:   ~a\n"
-          (~a (format-exact (sum-ledger-items acctid ledger-items) 2)
+          (~a (format-exact (sum-ledger-acct-items acctid ledger-items) 2)
               #:min-width 9 #:align 'right)))
 
 ;; TIP: great for finding which transactions on ledger cleared after statement date
@@ -723,25 +760,25 @@
   (let ([lis (filtered-stmt-unmatched-ledger-items acctid ymd8-end)])
     (pr-ledger-items acctid lis)
     (printf "TOTAL:   ~a\n"
-            (~a (format-exact (sum-ledger-items acctid lis) 2)
+            (~a (format-exact (sum-ledger-acct-items acctid lis) 2)
                 #:min-width 9 #:align 'right))))
 
 (define (pr-cleared-after-stmt-ledger-items acctid ymd8-end)
   (let ([lis (filtered-cleared-after-stmt-ledger-items acctid ymd8-end)])
     (pr-ledger-items acctid lis)
     (printf "TOTAL:   ~a\n"
-            (~a (format-exact (sum-ledger-items acctid lis) 2)
+            (~a (format-exact (sum-ledger-acct-items acctid lis) 2)
                 #:min-width 9 #:align 'right))))
 
 (define (sum-outstanding-ledger-items acctid ymd8-end)
-  (sum-ledger-items acctid (current-outstanding-ledger-items acctid ymd8-end)))
+  (sum-ledger-acct-items acctid (current-outstanding-ledger-items acctid ymd8-end)))
 
 (define (format-outstanding-ledger-items acctid ymd8-end)
   (let ([lis (current-outstanding-ledger-items acctid ymd8-end)])
     (format "~a~a~a\n"
             (format-ledger-items acctid lis)
             "TOTAL:   "
-            (~a (format-exact (sum-ledger-items acctid lis) 2)
+            (~a (format-exact (sum-ledger-acct-items acctid lis) 2)
                 #:min-width 9 #:align 'right))))
 
 (define (format-stmt-unmatched-ledger-items acctid ymd8-end)
@@ -749,7 +786,7 @@
     (format "~a~a~a\n"
             (format-ledger-items acctid lis)
             "TOTAL:   "
-            (~a (format-exact (sum-ledger-items acctid lis) 2)
+            (~a (format-exact (sum-ledger-acct-items acctid lis) 2)
                 #:min-width 9 #:align 'right))))
 
 (define (fpr-outstanding-ledger-items acctid ymd8-end port)
@@ -869,7 +906,9 @@
               ledger-unmatched)))
 
 (define (format-ledger-item acctid li)
-  (format "~a ~a ~a ~a / ~a\n"
+  (if (or (string=? acctid (ledger-item-dr-acctid li))
+          (string=? acctid (ledger-item-cr-acctid li)))
+      (format "~a ~a ~a ~a / ~a\n"
           (ledger-item-date li)
           (~a (format-exact (ledger-signed-amount acctid li) 2)
               #:min-width 9 #:align 'right)
@@ -878,17 +917,20 @@
                   (ledger-item-cr-seen li))
               #:min-width 2 #:align 'left)
           (ledger-item-payee li)
-          (ledger-item-description li)))
+          (ledger-item-description li))
+      ""))
 
 (define (fpr-ledger-item acctid li port)
-  (fprintf port (format-ledger-item acctid li)))
+  (let ([s (format-ledger-item acctid li)])
+    (when (> (string-length s) 0)
+      (fprintf port (format-ledger-item acctid li)))))
 
 (define (pr-ledger-item acctid li)
   (fpr-ledger-item acctid li (current-output-port)))
 
 (define (examine-acct acctid ymd8-end)
-  (let* ([statement-acct-items (statement-acct acctid (statement-range jan01 ymd8-end all-statement-items))]
-         [ledger-acct-items (ledger-acct acctid (ledger-range jan01 ymd8-end all-ledger-items))]
+  (let* ([statement-acct-items (statement-acct-matches acctid (statement-range jan01 ymd8-end all-statement-items))]
+         [ledger-acct-items (ledger-acct-matches acctid (ledger-range jan01 ymd8-end all-ledger-items))]
          [statement-acct-track-items (map (λ (x) (new track-item [item x])) statement-acct-items)]
          [ledger-acct-track-items (map (λ (x) (new track-item [item x])) ledger-acct-items)]
          [stmt-dates (list->vector (filter (λ (x) (and (>= x jan01) (<= x ymd8-end)))
