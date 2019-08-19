@@ -188,23 +188,39 @@
          [book-minus-ext (- book ext)])
     (list book ext book-minus-ext)))
 
-(define (format-ledger-bal-item acctid lbi)
- (format "~a ~a ~a ~a"
-         (~a (format-exact (ledger-bal-item-balance lbi) 2) #:min-width 9 #:align 'right)
-         (~a (format-exact (ledger-bal-item-balance-seen lbi) 2) #:min-width 9 #:align 'right)
-         (~a (format-exact (ledger-bal-item-diff lbi) 2) #:min-width 9 #:align 'right)
-         (format-ledger-item acctid (ledger-bal-item-ledger-item lbi))))
+(define (format-ledger-bal-item acctid lbi want-diff-seen?)
+  (if want-diff-seen?
+      (format "~a ~a ~a ~a"
+              (~a (format-exact (ledger-bal-item-diff lbi) 2) #:min-width 9 #:align 'right)
+              (~a (format-exact (ledger-bal-item-balance-seen lbi) 2) #:min-width 9 #:align 'right)
+              (~a (format-exact (ledger-bal-item-balance lbi) 2) #:min-width 9 #:align 'right)
+              (format-ledger-item acctid (ledger-bal-item-ledger-item lbi)))
+      (format "~a ~a"
+              (~a (format-exact (ledger-bal-item-balance lbi) 2) #:min-width 9 #:align 'right)
+              (format-ledger-item acctid (ledger-bal-item-ledger-item lbi)))))
 
 (define (pr-acct-book-and-ext-balances-up-through acctid up-through)
   (for-each
    (λ (lbi)
-     (printf "~a" (format-ledger-bal-item acctid lbi)))
+     (printf "~a" (format-ledger-bal-item acctid lbi #t)))
    (acct-book-and-ext-balances-up-to-date acctid up-through)))
 
 (define (pr-acct-book-and-ext-balances-between-dates acctid from through)
   (for-each
    (λ (lbi)
-     (printf "~a" (format-ledger-bal-item acctid lbi)))
+     (printf "~a" (format-ledger-bal-item acctid lbi #t)))
+   (acct-book-and-ext-balances-between-dates acctid from through)))
+
+(define (pr-acct-book-balances-up-through acctid up-through)
+  (for-each
+   (λ (lbi)
+     (printf "~a" (format-ledger-bal-item acctid lbi #f)))
+   (acct-book-and-ext-balances-up-to-date acctid up-through)))
+
+(define (pr-acct-book-balances-between-dates acctid from through)
+  (for-each
+   (λ (lbi)
+     (printf "~a" (format-ledger-bal-item acctid lbi #f)))
    (acct-book-and-ext-balances-between-dates acctid from through)))
 
 (define (acct-book-and-ext-balances-up-to-date acctid through)
@@ -566,13 +582,13 @@
 (define (pr-outlook-forward accts ndays)
   (let ([d (today->ymd8)])
     (for-each (λ (a)
-                (printf "===== account: ~a on ~a =====~n~nledger ext diff (most-recent):~n" a d)
+                (printf "~n===== account: ~a on ~a =====~n~nledger ext diff (most-recent):~n" a d)
                 (pr-acct-book-and-ext-balances-on-date a d)
                 (printf "~nmininum balance next ~a days:~n" ndays)
                 (pr-min-acct-day-bal-forward a ndays)
-                (printf "~noutstanding ledger items:~n")
+                (printf "~noutstanding ledger items (~a):~n" a)
                 (pr-outstanding-ledger-items a d) (printf "~n")
-                (printf "outflow:~n")
+                (printf "outflow (~a):~n" a)
                 (pr-outflow-forward a d) (printf "~n"))
               accts)))
 
@@ -590,11 +606,11 @@
     (for-each (λ (li)
                 (set! total (+ total (ledger-item-amount li)))
                 (printf "~a ~a ~a ~a / ~a\n"
-                        (ledger-item-date li)
                         (~a (format-exact total 2)
-                            #:min-width 8 #:align 'right)
+                            #:min-width 9 #:align 'right)
+                        (ledger-item-date li)
                         (~a (format-exact (ledger-item-amount li) 2)
-                            #:min-width 8 #:align 'right)
+                            #:min-width 9 #:align 'right)
                         (ledger-item-payee li)
                         (ledger-item-description li)))
               lis)))
