@@ -579,7 +579,7 @@
                           (today->ymd8)
                           (ymd8-plusdays->ymd8 (today->ymd8) ndays))))
           
-(define (pr-outlook-forward accts ndays)
+(define (pr-outlook-forward accts ndays want-outflow?)
   (let ([d (today->ymd8)])
     (for-each (λ (a)
                 (printf "~n===== account: ~a on ~a =====~n~nledger ext diff (most-recent):~n" a d)
@@ -587,9 +587,12 @@
                 (printf "~nmininum balance next ~a days:~n" ndays)
                 (pr-min-acct-day-bal-forward a ndays)
                 (printf "~noutstanding ledger items (~a):~n" a)
-                (pr-outstanding-ledger-items a d) (printf "~n")
-                (printf "outflow (~a):~n" a)
-                (pr-outflow-forward a d) (printf "~n"))
+                (pr-outstanding-ledger-items a d)
+                (printf "~n")
+                (when want-outflow?
+                  (begin (printf "outflow (~a):~n" a)
+                         (pr-outflow-forward a d)
+                         (printf "~n"))))
               accts)))
 
 (define (pr-outflow-forward acct ndays)
