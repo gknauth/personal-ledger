@@ -139,6 +139,16 @@
                         " order by date"))])
     (map row-to-ledger-item rows)))
 
+; string -> (list-of (list number))
+(define (db-get-active-apr acctid)
+  (let ([rows (query-rows
+               the-db
+               (string-append
+                "(select apr from interest_rates where acct_type='l' and acct_name='"
+                (substring acctid 2)
+                "' and cur is true)"))])
+    (string->number (vector-ref (first rows) 0))))
+
 (define (sub-false-for-sql-null x)
   (if (sql-null? x) #f x))
 
@@ -506,6 +516,11 @@
       (>= (ledger-item-date (ledger-bal-item-ledger-item lbi)) start-ymd8)))
   (get-day-bals-filter acctid filter-func))
 
+(define (accounts-bals-range accounts start-ymd8 end-ymd8)
+  (map (λ (x)
+         (list x (day-bals-range x start-ymd8 end-ymd8)))
+       (map (λ (a) (account-id a)) accounts)))
+
 (define (day-bals-range acctid start-ymd8 end-ymd8)
   (define filter-func
     (λ (lbi)
@@ -530,7 +545,6 @@
     (if (empty? bals)
         (list (first (reverse (day-bals-range acctid jan01 ymd8))))
         bals)))
-
 
 (define (plot-day-bals-from an-account start-ymd8)
   (plot-day-bals an-account (day-bals-from (account-id an-account) start-ymd8)))
@@ -557,6 +571,114 @@
   (plot-accounts-day-bals-range accounts
                                 (today->ymd8)
                                 (ymd8-plusdays->ymd8 (today->ymd8) ndays)))
+
+(struct ayb (v-titles h-indices h-ymd8s) #:transparent)
+
+; IN: e.g., output from accounts-bals-range
+; ( ("acct1" ( (date1 bal1) (date2 bal2) ... ))
+;   ("acct2" ( (date1 bal1) (date2 bal2) ... )) ... )
+;
+; v-titles ->  #("acct1" "acct2" ... "total")
+;
+; OUT:
+; (ayb accts-ymd8s-bals
+; h-ymd8s
+;    |
+;    v
+; 20190101 -> #(1 2 ... 3)
+; 20190102 -> #(2 5 ... 8)
+; ...
+; 20191129 -> #(1000 2000 ... 3000)
+(define (combine-day-bal-lists lo-acct-lo-day-bals start-ymd8 end-ymd8)
+  (let* ([titles0 (map first lo-acct-lo-day-bals)]
+         [titles (append titles0 (list "total"))]
+         ; #("acct1" "acct2" ... "acctN", "total")
+         [v-titles (list->vector titles)]
+         ; "acct1" -> 0, "acct2" -> 1, ..., "accnN" -> N-1, "total" -> N
+         [h-indices (for/hash ([k titles]
+                               [i (in-range (vector-length v-titles))])
+                      (values k i))]
+         [ymd8s (every-ymd8-from-through start-ymd8 end-ymd8)]
+         [h-ymd8s (for/hash ([k ymd8s])
+                    (values k (make-vector (vector-length v-titles) #f)))])
+    (for-each (λ (acct-lo-day-bals)
+                (set-matrix-point-balances acct-lo-day-bals h-ymd8s h-indices start-ymd8))
+              lo-acct-lo-day-bals)
+    (calculate-matrix-balances lo-acct-lo-day-bals h-ymd8s h-indices)
+   (ayb v-titles h-indices h-ymd8s)))
+
+(define (set-matrix-point-balances acct-lo-day-bals h-ymd8s h-indices start-ymd8)
+  (let ([acct (first acct-lo-day-bals)]
+        [lo-day-bals (second acct-lo-day-bals)])
+    ; set the specific balances in the matrix
+    (for-each (λ (a-day-bal)
+                (let ([ymd8 (day-bal-date a-day-bal)]
+                      [bal (day-bal-balance a-day-bal)]
+                      [i-acct (hash-ref h-indices acct)])
+                  (when (and (or (hash-has-key? h-ymd8s ymd8)
+                                 (< ymd8 start-ymd8))
+                             (or (false? (hash-ref h-ymd8s ymd8))
+                                 (false? (vector-ref (hash-ref h-ymd8s ymd8) i-acct))))
+                    (when (false? (hash-ref h-ymd8s ymd8))
+                      (hash-set! h-ymd8s ymd8 (make-vector (vector-length h-indices) #f)))
+                    (vector-set! (hash-ref h-ymd8s (if (< ymd8 start-ymd8)
+                                                       start-ymd8
+                                                       ymd8))
+                                 i-acct bal))))
+              lo-day-bals)))
+
+;; ---------------------------------------------------------------------
+;;                 BEFORE            ||             AFTER
+;; ---------------------------------------------------------------------
+;;       MATRIX      |    MEMORY    |DAY|    MEMORY   |      MATRIX
+;; ------------------+--------------|---|-------------------------------
+;;   .   12  .   .   |  .   .   .   | 1 |  .   12  .  |  .   12  .    12   
+;;   .   .   23  .   |  .   12  .   | 2 |  .   12  23 |  .   12  23   35   
+;;   .   32  33  .   |  .   12  23  | 3 |  .   32  33 |  .   32  33   65
+;;   .   .   .   .   |  .   32  33  | 4 |  .   32  33 |  .   32  33   65    
+;;   51  .   .   .   |  .   32  33  | 5 |  51  32  33 |  51  32  33  116
+;;   .   62  .   .   |  51  32  33  | 6 |  51  62  33 |  51  62  33  146
+;;   71  .   73  .   |  51  62  33  | 7 |  71  62  73 |  71  62  73  206
+;; 
+;; foreach day:
+;;   matrix[day][total] = 0
+;;   foreach acct:
+;;     when matrix[day][acct] has no value AND
+;;          memory[acct] has a value:
+;;       matrix[day][acct] = memory[acct]
+;;   foreach acct:
+;;     when matrix[day][acct] has a value:
+;;       memory[acct] = matrix[day][account]
+;;       matrix[day][total] += matrix[day][account]
+
+(define (calculate-matrix-balances lo-acct-lo-day-bals h-ymd8s h-indices)
+  (let* ([accts (map first lo-acct-lo-day-bals)]
+         [memory (make-vector (hash-count h-indices) #f)]
+         [i-total (hash-ref h-indices "total")]
+         [ymd8s-sorted (sort (hash-keys h-ymd8s) <)])
+    (for-each
+     (λ (ymd8)
+       (let ([v-today (hash-ref h-ymd8s ymd8)])
+         (vector-set! v-today i-total 0)
+         (for-each (λ (acct)
+                     (let ([i-acct (hash-ref h-indices acct)])
+                       (when (and (false? (vector-ref v-today i-acct))
+                                  (vector-ref memory i-acct))
+                         (vector-set! v-today i-acct (vector-ref memory i-acct)))))
+                   accts)
+         (for-each (λ (acct)
+                     (let* ([i-acct (hash-ref h-indices acct)]
+                            [prev-total (vector-ref v-today i-total)])
+                       (vector-set! memory i-acct (vector-ref v-today i-acct))
+                       (vector-set! v-today i-total (+ prev-total (vector-ref v-today i-acct)))))
+                   accts)))
+     ymd8s-sorted)
+    h-ymd8s))
+
+(define (day-bals-hash->sorted-list h)
+  (sort (λ (x y)
+          (< (day-bal-date x) (day-bal-date y)))
+        (hash-values h)))
 
 (define (pr-min-acct-day-bal-forward acctid ndays)
   (let ([b (min-acct-day-bal-forward acctid ndays)])
@@ -631,6 +753,34 @@
          [xs (map (λ (b) (date->seconds (ymd8->date (day-bal-date b)))) bals)]
          [ys (map day-bal-balance bals)])
     (lines (map vector xs ys) #:color (account-color an-account))))
+
+(define (plot-combined-accounts-day-bals-range accounts start-ymd8 end-ymd8)
+  (let* ([lo-acct-lo-day-bals (accounts-bals-range accounts start-ymd8 end-ymd8)]
+         [an-ayb (combine-day-bal-lists lo-acct-lo-day-bals start-ymd8 end-ymd8)]
+         [accounts+ (append accounts (list (account "total" "black")))])
+    (parameterize ([plot-x-label "Date"]
+                   [plot-x-ticks (date-ticks)]
+                   [plot-y-label "Amount"])
+      (plot (lines-combined-accounts-day-bals-range an-ayb accounts+ start-ymd8 end-ymd8)))))
+
+(struct ymd8-x (ymd8 seconds))
+
+(define (lines-combined-accounts-day-bals-range an-ayb accounts start-ymd8 end-ymd8)
+  (let* ([h-ymd8s (ayb-h-ymd8s an-ayb)]
+         [sorted-ymd8-xs (map (λ (ymd8)
+                                (ymd8-x ymd8 (date->seconds (ymd8->date ymd8))))
+                              (sort (hash-keys h-ymd8s) <))])
+    (map (λ (an-account)
+           (let* ([xs (map ymd8-x-seconds sorted-ymd8-xs)]
+                  [h-indices (ayb-h-indices an-ayb)]
+                  [i-acct (hash-ref h-indices (account-id an-account))]
+                  [ys (map (λ (a-ymd8-x)
+                             (let* ([ymd8 (ymd8-x-ymd8 a-ymd8-x)]
+                                    [v (hash-ref h-ymd8s ymd8)])
+                               (vector-ref v i-acct)))
+                           sorted-ymd8-xs)])
+             (lines (map vector xs ys) #:color (account-color an-account))))
+         accounts)))
 
 (define (acct-color acctid)
   (let ([ch (string-ref acctid 0)])
@@ -928,15 +1078,15 @@
   (if (or (string=? acctid (ledger-item-dr-acctid li))
           (string=? acctid (ledger-item-cr-acctid li)))
       (format "~a ~a ~a ~a / ~a\n"
-          (ledger-item-date li)
-          (~a (format-exact (ledger-signed-amount acctid li) 2)
-              #:min-width 9 #:align 'right)
-          (~a (if (> (ledger-signed-amount acctid li) 0)
-                  (ledger-item-dr-seen li)
-                  (ledger-item-cr-seen li))
-              #:min-width 2 #:align 'left)
-          (ledger-item-payee li)
-          (ledger-item-description li))
+              (ledger-item-date li)
+              (~a (format-exact (ledger-signed-amount acctid li) 2)
+                  #:min-width 9 #:align 'right)
+              (~a (if (> (ledger-signed-amount acctid li) 0)
+                      (ledger-item-dr-seen li)
+                      (ledger-item-cr-seen li))
+                  #:min-width 2 #:align 'left)
+              (ledger-item-payee li)
+              (ledger-item-description li))
       ""))
 
 (define (fpr-ledger-item acctid li port)
