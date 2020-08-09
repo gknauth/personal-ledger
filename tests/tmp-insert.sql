@@ -1,0 +1,46 @@
+insert into ledger (date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct)
+ values ('2018-01-01',0.0,'x tbd','x tbd','-*- mode: racket -*-','',NULL,NULL,NULL,NULL);
+insert into ledger (date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct)
+ values ('2018-01-01',100.0,'a foo','e tbd','P00','D00','bf',NULL,NULL,NULL);
+insert into ledger (date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct)
+ values ('2018-01-01',10.01,'e tbd','a foo','P01','D01',NULL,'bf',NULL,NULL);
+insert into ledger (date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct)
+ values ('2018-01-01',10.02,'e tbd','a foo','P02','D02',NULL,'bf',NULL,NULL);
+insert into ledger (date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct)
+ values ('2018-01-01',10.03,'e tbd','a foo','P03','D03',NULL,'bf',NULL,NULL);
+insert into ledger (date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct)
+ values ('2018-01-15',13.37,'x tbd','a foo','P37','D37',NULL,'bf',NULL,NULL);
+insert into ledger (date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct)
+ values ('2018-01-20',13.38,'a foo','x tbd','P38','D38','01',NULL,NULL,NULL);
+insert into ledger (date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct)
+ values ('2018-01-25',13.39,'x tbd','a foo','P39','D39',NULL,'01',NULL,NULL);
+insert into ledger (date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct)
+ values ('2018-02-14',14.4,'a foo','x tbd','P40','D40','02',NULL,NULL,NULL);
+insert into ledger (date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct)
+ values ('2018-02-20',14.41,'x tbd','a foo','P41','D41',NULL,'02',NULL,NULL);
+insert into ledger (date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct)
+ values ('2018-02-26',14.42,'a foo','x tbd','P42','D42','03',NULL,NULL,NULL);
+insert into ledger (date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct)
+ values ('2018-03-15',15.43,'x tbd','a foo','P43','D43',NULL,'04',NULL,NULL);
+insert into ledger (date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct)
+ values ('2018-03-20',15.44,'a foo','x tbd','P44','D44','04',NULL,NULL,NULL);
+insert into ledger (date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct)
+ values ('2018-03-25',15.45,'x tbd','a foo','P45','D45',NULL,'04',NULL,NULL);
+insert into ledger (date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct)
+ values ('2018-04-14',16.46,'a foo','x tbd','P46','D46',NULL,NULL,NULL,NULL);
+insert into ledger (date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct)
+ values ('2018-04-20',16.47,'x tbd','a foo','P47','D47',NULL,'04',NULL,NULL);
+insert into ledger (date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct)
+ values ('2018-04-26',16.48,'a foo','x tbd','P48','D48','05',NULL,NULL,NULL);
+insert into ledger (date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct)
+ values ('2018-05-15',17.49,'x tbd','a foo','P49','D49',NULL,'05',NULL,NULL);
+insert into ledger (date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct)
+ values ('2018-05-20',17.5,'a foo','x tbd','P50','D50','05',NULL,NULL,NULL);
+insert into ledger (date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct)
+ values ('2018-05-25',17.51,'x tbd','a foo','P51','D51',NULL,':',NULL,NULL);
+insert into ledger (date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct)
+ values ('2018-06-14',18.52,'a foo','x tbd','P52','D52',':',NULL,NULL,NULL);
+insert into ledger (date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct)
+ values ('2018-06-20',18.53,'x tbd','a foo','P53','D53',NULL,NULL,NULL,NULL);
+insert into ledger (date,amount,dr_acct,cr_acct,payee,description,dr_seen,cr_seen,dr_deduct,cr_deduct)
+ values ('2018-06-26',18.54,'a foo','x tbd','P54','D54',NULL,NULL,NULL,NULL);
