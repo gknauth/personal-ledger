@@ -48,9 +48,12 @@
 (define jan0 (- jan01 1))
 
 (define db-source
-  (mysql-data-source #:server db-host #:port db-port
-                     #:user db-user #:password db-passwd
-                     #:database db-schema))
+  ((cond [(eq? db-engine 'mysql) mysql-data-source]
+         [(eq? db-engine 'postgres) postgresql-data-source]
+         [else (error "invalid db-engine")])
+   #:server db-host #:port db-port
+   #:user db-user #:password db-passwd
+   #:database db-schema))
 
 (define (connect!)
   (dsn-connect db-source))
@@ -682,6 +685,7 @@
 
 (define (pr-min-acct-day-bal-forward acctid ndays)
   (let ([b (min-acct-day-bal-forward acctid ndays)])
+    ;(printf "~a ~a\n" acctid ndays)
     (printf "~a ~a\n" (day-bal-date b) (format-exact (day-bal-balance b) 2))))
 
 (define (min-acct-day-bal-forward acctid ndays)

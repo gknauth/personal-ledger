@@ -430,7 +430,7 @@
         (when (not (string=? s-stmt-bal "n/a"))
           (send (vector-ref summary-cells (summary-ij-s row "reconciliation")) set-value
                 (format-exact reconciliation 2))
-          (let ([unmatched (sum-ledger-items acct (filtered-stmt-unmatched-ledger-items acct stmt-ymd8))])
+          (let ([unmatched (sum-ledger-acct-items acct (filtered-stmt-unmatched-ledger-items acct stmt-ymd8))])
             (send (vector-ref summary-cells (summary-ij-s row "unmatched")) set-value
                   (format-exact unmatched 2))
             (send (vector-ref summary-cells (summary-ij-s row "should-match")) set-value
@@ -455,7 +455,7 @@
         (set-text-field-string! (detail-cell-named "new-cr") (format-exact new-cr 2))
         (when (not (or (string=? s-stmt-bal "n/a") (string=? s-stmt-bal "")))
           (set-text-field-string! (detail-cell-named "reconciliation") (format-exact reconciliation 2))
-          (let ([unmatched (sum-ledger-items acct (filtered-stmt-unmatched-ledger-items acct stmt-ymd8))])
+          (let ([unmatched (sum-ledger-acct-items acct (filtered-stmt-unmatched-ledger-items acct stmt-ymd8))])
         (set-text-field-string! (detail-cell-named "unmatched")
                                 (format-exact unmatched 2))
         (set-text-field-string! (detail-cell-named "should-match")
